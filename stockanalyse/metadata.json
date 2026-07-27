@@ -1,0 +1,6 @@
+{
+  "name": "招标风险监管与标段分析系统",
+  "description": "智慧招投标风险监控与标段分析平台，提供高/中/低风险标段监管、投标单位分析及股权穿透关联诊断。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
