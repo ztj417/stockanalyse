@@ -18,9 +18,72 @@ import {
   GitCommit,
   UserX,
   FileCheck,
-  MousePointer
+  MousePointer,
+  ChevronDown,
+  Check,
+  Filter,
+  X
 } from 'lucide-react';
 import { SectionItem } from '../types';
+
+interface CategoryTreeNode {
+  id: string;
+  name: string;
+  weight?: string;
+  children?: {
+    id: string;
+    name: string;
+  }[];
+}
+
+const RULE_CATEGORY_TREE: CategoryTreeNode[] = [
+  {
+    id: 'cat-equity',
+    name: '股权关系维度',
+    weight: '权重40%',
+    children: [
+      { id: 'cat-equity-direct', name: '直接控股' },
+      { id: 'cat-equity-indirect', name: '间接控股' },
+      { id: 'cat-equity-join', name: '参股关系' },
+      { id: 'cat-equity-cross', name: '交叉持股' },
+      { id: 'cat-equity-mother', name: '同一母公司控制' },
+    ],
+  },
+  {
+    id: 'cat-personnel',
+    name: '人员关系维度',
+    weight: '权重30%',
+    children: [
+      { id: 'cat-personnel-legal', name: '法定代表人/负责人为同一人' },
+      { id: 'cat-personnel-exec', name: '董监交叉任职' },
+      { id: 'cat-personnel-relative', name: '近亲属关系' },
+      { id: 'cat-personnel-nominee', name: '股权代持' },
+    ],
+  },
+  {
+    id: 'cat-other',
+    name: '其他关联维度',
+    weight: '权重10%',
+    children: [
+      { id: 'cat-other-contact', name: '联系方式关联（电话、邮箱、地址）' },
+      { id: 'cat-other-history', name: '历史投标关联' },
+      { id: 'cat-other-accompany', name: '陪标单位排查' },
+      { id: 'cat-other-keyperson', name: '投标文件关键人员工作关联' },
+    ],
+  },
+];
+
+const getCategoryLabel = (id: string): string => {
+  if (id === 'all') return '规则分类: 全部';
+  for (const cat of RULE_CATEGORY_TREE) {
+    if (cat.id === id) return `大类: ${cat.name}`;
+    if (cat.children) {
+      const sub = cat.children.find((s) => s.id === id);
+      if (sub) return `规则: ${sub.name}`;
+    }
+  }
+  return '规则分类';
+};
 
 export type EquityFilterType =
   | 'all'
@@ -70,10 +133,15 @@ interface TopologyEdge {
 
 interface InteractiveEquityTopologyProps {
   section: SectionItem;
+  targetCompanyName?: string;
 }
 
-export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps> = ({ section }) => {
-  const [activeFilter, setActiveFilter] = useState<EquityFilterType>('all');
+export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps> = ({
+  section,
+  targetCompanyName
+}) => {
+  const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [isCatTreeOpen, setIsCatTreeOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -82,6 +150,20 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showLegendModal, setShowLegendModal] = useState(false);
   const [onlyShowProblemCompanies, setOnlyShowProblemCompanies] = useState(true);
+
+  // Target company state for single-unit upward/downward penetration view
+  const [selectedCompanyName, setSelectedCompanyName] = useState<string>(() => {
+    if (!targetCompanyName) return 'all';
+    const matched = section.companies.find((c) => targetCompanyName.includes(c.name) || c.name.includes(targetCompanyName));
+    return matched ? matched.name : targetCompanyName;
+  });
+
+  useEffect(() => {
+    if (targetCompanyName) {
+      const matched = section.companies.find((c) => targetCompanyName.includes(c.name) || c.name.includes(targetCompanyName));
+      setSelectedCompanyName(matched ? matched.name : targetCompanyName);
+    }
+  }, [targetCompanyName, section.companies]);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -110,6 +192,203 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
     const isHigh = section.riskLevel === 'high';
     const isMedium = section.riskLevel === 'medium';
     const isLow = section.riskLevel === 'low';
+
+    // -------------------------------------------------------------
+    // MODE A: SINGLE COMPANY UPWARD & DOWNWARD PENETRATION TOPOLOGY
+    // -------------------------------------------------------------
+    if (selectedCompanyName !== 'all') {
+      const comp = section.companies.find((c) => c.name === selectedCompanyName) || section.companies[0];
+      if (comp) {
+        const singleNodes: TopologyNode[] = [];
+        const singleEdges: TopologyEdge[] = [];
+        const calculatedWidth = 1180;
+        const centerX = calculatedWidth / 2;
+
+        const isTargetHighRisk = comp.riskFlags && comp.riskFlags.length > 0;
+        const primaryShareholderRatio = comp.shareholders && comp.shareholders[0]?.ratio ? comp.shareholders[0].ratio : '65%';
+
+        // 1. CENTER FOCUS NODE: Target Bidding Company
+        const centerNodeId = `node-center-${comp.id}`;
+        const centerNode: TopologyNode = {
+          id: centerNodeId,
+          name: comp.name,
+          type: 'bidding_company',
+          legalPerson: comp.legalPerson || '法定代表人',
+          registeredCapital: comp.registeredCapital || '10000 万元人民币',
+          shareRatio: '穿透分析核心主体',
+          isHighRisk: isTargetHighRisk,
+          x: centerX,
+          y: 230,
+          riskFlags: isTargetHighRisk ? comp.riskFlags : ['参评投标单位', '穿透聚焦分析']
+        };
+        singleNodes.push(centerNode);
+
+        // 2. UPWARD PENETRATION (向上穿透: 控股股东 / 实际控制人)
+        const parentName = (comp.shareholders && comp.shareholders[0]?.name)
+          ? comp.shareholders[0].name
+          : (section.companies[0]?.shareholders[0]?.name || '中洲科技集团有限公司');
+
+        // Top Layer 1: Parent Controlling Entity
+        const topParentId = `node-up-parent-${comp.id}`;
+        const topParentNode: TopologyNode = {
+          id: topParentId,
+          name: parentName,
+          type: 'ultimate',
+          legalPerson: '控股股东 / 集团总部',
+          registeredCapital: '50000 万元人民币',
+          shareRatio: `控股 ${primaryShareholderRatio}`,
+          isHighRisk: isHigh,
+          x: centerX - 160,
+          y: 75,
+          riskFlags: ['控股股东', '表决权控制']
+        };
+        singleNodes.push(topParentNode);
+
+        // Top Layer 1 Edge -> Center Target
+        singleEdges.push({
+          id: `edge-up-parent-${comp.id}`,
+          source: topParentId,
+          target: centerNodeId,
+          category: 'equity',
+          relationType: 'direct',
+          label: `直接控股 ${primaryShareholderRatio}`,
+          holdingRatio: primaryShareholderRatio,
+          detailText: `【${parentName}】直接持有【${comp.name}】${primaryShareholderRatio} 股权，具备绝对控制权与表决权。`,
+          riskLevel: isHigh ? 'high' : 'low'
+        });
+
+        // Top Layer 2: Natural Person Ultimate Controller
+        const controllerPersonName = `${comp.legalPerson || '张建国'} (实际控制人/最终受益人)`;
+        const topPersonId = `node-up-person-${comp.id}`;
+        const topPersonNode: TopologyNode = {
+          id: topPersonId,
+          name: controllerPersonName,
+          type: 'person',
+          legalPerson: '终极自然人控制者',
+          registeredCapital: '个人权益',
+          shareRatio: '穿透控制者',
+          isHighRisk: isHigh,
+          x: centerX + 160,
+          y: 75,
+          riskFlags: ['最终受益人', '实际控制者']
+        };
+        singleNodes.push(topPersonNode);
+
+        // Top Person Edge -> Parent Company
+        singleEdges.push({
+          id: `edge-up-person-${comp.id}`,
+          source: topPersonId,
+          target: topParentId,
+          category: 'personnel',
+          relationType: 'same_legal_person',
+          label: '实际控制 85%',
+          holdingRatio: '85%',
+          detailText: `【${controllerPersonName}】穿透持有【${parentName}】85% 股份并担任董事长，为最终实际控制人。`,
+          riskLevel: isHigh ? 'high' : 'low'
+        });
+
+        // 3. DOWNWARD PENETRATION (向下穿透: 核心全资/控股子公司)
+        const namePrefix = comp.name.length > 5 ? comp.name.substring(0, 5) : comp.name;
+
+        // Downward Sub 1
+        const sub1Name = `${namePrefix}数字技术有限公司（全资子公司）`;
+        const sub1Id = `node-down-sub1-${comp.id}`;
+        const sub1Node: TopologyNode = {
+          id: sub1Id,
+          name: sub1Name,
+          type: 'spv',
+          legalPerson: '核心生产与技术研发基地',
+          registeredCapital: '2000 万元人民币',
+          shareRatio: '全资持股 100%',
+          isHighRisk: false,
+          x: centerX - 200,
+          y: 390,
+          riskFlags: ['全资子公司', '垂直统筹']
+        };
+        singleNodes.push(sub1Node);
+
+        singleEdges.push({
+          id: `edge-down-sub1-${comp.id}`,
+          source: centerNodeId,
+          target: sub1Id,
+          category: 'equity',
+          relationType: 'direct',
+          label: '全资持股 100%',
+          holdingRatio: '100%',
+          detailText: `【${comp.name}】全资持有【${sub1Name}】100% 股权，核心技术与资金统一调度。`,
+          riskLevel: 'low'
+        });
+
+        // Downward Sub 2
+        const sub2Name = `${namePrefix}智能装备制造有限公司（控股 70%）`;
+        const sub2Id = `node-down-sub2-${comp.id}`;
+        const sub2Node: TopologyNode = {
+          id: sub2Id,
+          name: sub2Name,
+          type: 'spv',
+          legalPerson: '区域制造运营实体',
+          registeredCapital: '1500 万元人民币',
+          shareRatio: '控股持股 70%',
+          isHighRisk: false,
+          x: centerX + 200,
+          y: 390,
+          riskFlags: ['控股子公司', '产业延伸']
+        };
+        singleNodes.push(sub2Node);
+
+        singleEdges.push({
+          id: `edge-down-sub2-${comp.id}`,
+          source: centerNodeId,
+          target: sub2Id,
+          category: 'equity',
+          relationType: 'direct',
+          label: '控股 70%',
+          holdingRatio: '70%',
+          detailText: `【${comp.name}】持有【${sub2Name}】70% 股权，派驻高级管理人员并控制董事会。`,
+          riskLevel: 'low'
+        });
+
+        // 4. HORIZONTAL ASSOCIATED BIDDING UNITS (同标段关联参标单位)
+        const otherCompanies = section.companies.filter((c) => c.name !== comp.name);
+        if (otherCompanies.length > 0 && (isTargetHighRisk || !isLow)) {
+          const assocComp = otherCompanies[0];
+          const assocId = `node-horizontal-${assocComp.id}`;
+          const assocNode: TopologyNode = {
+            id: assocId,
+            name: assocComp.name,
+            type: 'bidding_company',
+            legalPerson: assocComp.legalPerson || '法定代表人',
+            registeredCapital: assocComp.registeredCapital || '1000 万元人民币',
+            shareRatio: '同标段参评单位',
+            isHighRisk: assocComp.riskFlags && assocComp.riskFlags.length > 0,
+            x: centerX + 410,
+            y: 230,
+            riskFlags: assocComp.riskFlags && assocComp.riskFlags.length > 0 ? assocComp.riskFlags : ['同场竞标单位']
+          };
+          singleNodes.push(assocNode);
+
+          const relType = isHigh ? 'cross' : 'same_parent';
+          const relLabel = isHigh ? '交叉持股 15% / 协同嫌疑' : '同一集团关联';
+          singleEdges.push({
+            id: `edge-horizontal-${comp.id}`,
+            source: centerNodeId,
+            target: assocId,
+            category: isHigh ? 'equity' : 'personnel',
+            relationType: relType,
+            label: relLabel,
+            holdingRatio: '15%',
+            detailText: `【${comp.name}】与同标段参评单位【${assocComp.name}】存在 ${relLabel}，涉及同场竞标关联排查。`,
+            riskLevel: isHigh ? 'high' : 'medium'
+          });
+        }
+
+        return { nodes: singleNodes, edges: singleEdges, canvasWidth: calculatedWidth };
+      }
+    }
+
+    // -------------------------------------------------------------
+    // MODE B: ALL COMPANIES FULL SECTION PANORAMA TOPOLOGY
+    // -------------------------------------------------------------
 
     // 1. LOW RISK TOPOLOGY: Independently penetrate 1 layer up & 1 layer down for each bidding unit with NO inter-unit connections
     if (isLow) {
@@ -457,8 +736,46 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
   // Filter logic
   const filteredEdges = useMemo(() => {
     if (activeFilter === 'all') return edges;
-    if (activeFilter === 'equity_group') return edges.filter((e) => e.category === 'equity');
-    if (activeFilter === 'personnel_group') return edges.filter((e) => e.category === 'personnel');
+
+    if (activeFilter === 'cat-equity' || activeFilter === 'equity_group') {
+      return edges.filter((e) => e.category === 'equity' || ['direct', 'indirect', 'cross', 'same_parent', 'join'].includes(e.relationType));
+    }
+    if (activeFilter === 'cat-personnel' || activeFilter === 'personnel_group') {
+      return edges.filter((e) => e.category === 'personnel' || ['same_legal_person', 'cross_executive', 'close_relatives', 'nominee_shareholder'].includes(e.relationType));
+    }
+    if (activeFilter === 'cat-other') {
+      return edges.filter((e) => e.category === 'other' || ['contact', 'history', 'accompany', 'keyperson'].includes(e.relationType));
+    }
+
+    const subTypeMap: Record<string, string[]> = {
+      'cat-equity-direct': ['direct'],
+      'cat-equity-indirect': ['indirect'],
+      'cat-equity-join': ['join'],
+      'cat-equity-cross': ['cross'],
+      'cat-equity-mother': ['same_parent'],
+      'cat-personnel-legal': ['same_legal_person'],
+      'cat-personnel-exec': ['cross_executive'],
+      'cat-personnel-relative': ['close_relatives'],
+      'cat-personnel-nominee': ['nominee_shareholder'],
+      'cat-other-contact': ['contact'],
+      'cat-other-history': ['history'],
+      'cat-other-accompany': ['accompany'],
+      'cat-other-keyperson': ['keyperson'],
+      'direct': ['direct'],
+      'indirect': ['indirect'],
+      'cross': ['cross'],
+      'same_parent': ['same_parent'],
+      'same_legal_person': ['same_legal_person'],
+      'cross_executive': ['cross_executive'],
+      'close_relatives': ['close_relatives'],
+      'nominee_shareholder': ['nominee_shareholder'],
+    };
+
+    const allowedTypes = subTypeMap[activeFilter];
+    if (allowedTypes) {
+      return edges.filter((e) => allowedTypes.includes(e.relationType));
+    }
+
     return edges.filter((e) => e.relationType === activeFilter);
   }, [edges, activeFilter]);
 
@@ -601,6 +918,25 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Target Company Selector */}
+            <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-blue-200 shadow-2xs">
+              <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                穿透目标单位:
+              </span>
+              <select
+                value={selectedCompanyName}
+                onChange={(e) => setSelectedCompanyName(e.target.value)}
+                className="text-xs font-bold bg-transparent text-blue-900 focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="all">🌐 全部投标单位关联拓扑 (全景图)</option>
+                {section.companies.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    🏢 {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               onClick={() => setOnlyShowProblemCompanies(!onlyShowProblemCompanies)}
               className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs ${
@@ -650,143 +986,134 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
           </div>
         </div>
 
-        {/* 2. Structured Filter Categories Bar (Equity vs Personnel) */}
-        <div className="space-y-2 pt-2.5 border-t border-slate-200/80">
-          {/* Equity Section Filters */}
-          <div className="flex items-center gap-1.5 flex-wrap text-xs">
-            <span className="text-blue-700 font-bold mr-1 flex items-center gap-1 min-w-[76px]">
-              <Building2 className="w-3.5 h-3.5" />
-              股权关系：
-            </span>
-
+        {/* 2. Rule Category Tree Selector Dropdown & Search Bar */}
+        <div className="pt-2.5 border-t border-slate-200/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          {/* 规则分类树状搜索 */}
+          <div className="relative">
             <button
-              onClick={() => setActiveFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                activeFilter === 'all'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/80'
+              onClick={() => setIsCatTreeOpen(!isCatTreeOpen)}
+              className={`w-full sm:w-auto inline-flex items-center justify-between gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-xl border transition-all cursor-pointer bg-white ${
+                activeFilter !== 'all'
+                  ? 'border-blue-500 text-blue-700 bg-blue-50/50 ring-2 ring-blue-500/20'
+                  : 'border-slate-200 text-slate-700 hover:bg-slate-100/80'
               }`}
             >
-              全部图谱关系 ({edges.length})
+              <div className="flex items-center gap-1.5 truncate">
+                <Filter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span className="truncate">
+                  {getCategoryLabel(activeFilter)}
+                </span>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isCatTreeOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            <button
-              onClick={() => setActiveFilter('direct')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeFilter === 'direct'
-                  ? 'bg-red-600 text-white shadow-2xs'
-                  : 'bg-red-50/80 text-red-700 hover:bg-red-100 border border-red-200/80'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-red-500"></span>
-              直接控股 ({edges.filter((e) => e.relationType === 'direct').length})
-            </button>
+            {/* Tree Selector Dropdown Panel */}
+            {isCatTreeOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => setIsCatTreeOpen(false)}
+                />
 
-            <button
-              onClick={() => setActiveFilter('indirect')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeFilter === 'indirect'
-                  ? 'bg-amber-600 text-white shadow-2xs'
-                  : 'bg-amber-50/80 text-amber-800 hover:bg-amber-100 border border-amber-200/80'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-              间接控股 ({edges.filter((e) => e.relationType === 'indirect').length})
-            </button>
+                <div className="absolute left-0 top-full mt-1.5 z-30 w-80 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-2 text-xs space-y-1 max-h-88 overflow-y-auto">
+                  <button
+                    onClick={() => {
+                      setActiveFilter('all');
+                      setIsCatTreeOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-2 font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                      activeFilter === 'all'
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>全部规则分类</span>
+                    {activeFilter === 'all' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                  </button>
 
-            <button
-              onClick={() => setActiveFilter('cross')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeFilter === 'cross'
-                  ? 'bg-purple-600 text-white shadow-2xs'
-                  : 'bg-purple-50/80 text-purple-700 hover:bg-purple-100 border border-purple-200/80'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-              交叉持股 ({edges.filter((e) => e.relationType === 'cross').length})
-            </button>
+                  <div className="border-t border-slate-100 my-1" />
 
-            <button
-              onClick={() => setActiveFilter('same_parent')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeFilter === 'same_parent'
-                  ? 'bg-sky-600 text-white shadow-2xs'
-                  : 'bg-sky-50/80 text-sky-800 hover:bg-sky-100 border border-sky-200/80'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-sky-500"></span>
-              同一个母公司控制 ({edges.filter((e) => e.relationType === 'same_parent').length})
-            </button>
+                  {/* Tree Categories */}
+                  {RULE_CATEGORY_TREE.map((category) => {
+                    const isMainSelected = activeFilter === category.id;
+
+                    return (
+                      <div key={category.id} className="space-y-0.5">
+                        {/* 大类 (可选中!) */}
+                        <button
+                          onClick={() => {
+                            setActiveFilter(category.id);
+                            setIsCatTreeOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-1.5 font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                            isMainSelected
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-slate-800 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{category.name}</span>
+                            {category.weight && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 text-slate-500">
+                                {category.weight}
+                              </span>
+                            )}
+                          </div>
+                          {isMainSelected && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                        </button>
+
+                        {/* 子类列表 */}
+                        {category.children && (
+                          <div className="pl-6 space-y-0.5 border-l-2 border-slate-100 ml-4 my-0.5">
+                            {category.children.map((child) => {
+                              const isSubSelected = activeFilter === child.id;
+
+                              return (
+                                <button
+                                  key={child.id}
+                                  onClick={() => {
+                                    setActiveFilter(child.id);
+                                    setIsCatTreeOpen(false);
+                                  }}
+                                  className={`w-full text-left px-3 py-1.5 text-[11px] rounded-lg font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                                    isSubSelected
+                                      ? 'bg-blue-50 text-blue-700 font-bold'
+                                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                  }`}
+                                >
+                                  <span>{child.name}</span>
+                                  {isSubSelected && <Check className="w-3 h-3 text-blue-600" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Personnel & Nominee Section Filters */}
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5 flex-wrap text-xs">
-              <span className="text-purple-700 font-bold mr-1 flex items-center gap-1 min-w-[76px]">
-                <Users className="w-3.5 h-3.5" />
-                人员及代持：
-              </span>
-
+          {/* Quick Search Box */}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="搜索单位名称 / 控制人..."
+              className="w-full pl-9 pr-8 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400 font-medium shadow-2xs"
+            />
+            {searchTerm && (
               <button
-                onClick={() => setActiveFilter('same_legal_person')}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeFilter === 'same_legal_person'
-                    ? 'bg-rose-600 text-white shadow-2xs'
-                    : 'bg-rose-50/80 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
-                }`}
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full cursor-pointer"
               >
-                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                法定代表人/负责人同一人 ({edges.filter((e) => e.relationType === 'same_legal_person').length})
+                <X className="w-3 h-3" />
               </button>
-
-              <button
-                onClick={() => setActiveFilter('cross_executive')}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeFilter === 'cross_executive'
-                    ? 'bg-indigo-600 text-white shadow-2xs'
-                    : 'bg-indigo-50/80 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/80'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                董监高交叉任职 ({edges.filter((e) => e.relationType === 'cross_executive').length})
-              </button>
-
-              <button
-                onClick={() => setActiveFilter('close_relatives')}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeFilter === 'close_relatives'
-                    ? 'bg-fuchsia-600 text-white shadow-2xs'
-                    : 'bg-fuchsia-50/80 text-fuchsia-700 hover:bg-fuchsia-100 border border-fuchsia-200/80'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-fuchsia-500"></span>
-                近亲属关系 ({edges.filter((e) => e.relationType === 'close_relatives').length})
-              </button>
-
-              <button
-                onClick={() => setActiveFilter('nominee_shareholder')}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeFilter === 'nominee_shareholder'
-                    ? 'bg-teal-600 text-white shadow-2xs'
-                    : 'bg-teal-50/80 text-teal-800 hover:bg-teal-100 border border-teal-200/80'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-teal-500"></span>
-                股权代持 ({edges.filter((e) => e.relationType === 'nominee_shareholder').length})
-              </button>
-            </div>
-
-            {/* Quick Search Box */}
-            <div className="relative w-full sm:w-56">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="搜索单位名称 / 控制人..."
-                className="w-full bg-white border border-slate-200 rounded-xl pl-8 pr-3 py-1 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 shadow-2xs"
-              />
-            </div>
+            )}
           </div>
         </div>
       </div>

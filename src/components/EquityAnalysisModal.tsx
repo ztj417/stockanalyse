@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   ArrowLeft,
@@ -28,9 +28,13 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Clock,
   Scale,
-  Tag
+  RotateCcw,
+  Tag,
+  Filter,
+  Folder
 } from 'lucide-react';
 import { SectionItem } from '../types';
 import { InteractiveEquityTopology } from './InteractiveEquityTopology';
@@ -40,23 +44,210 @@ interface EquityAnalysisModalProps {
   onClose: () => void;
 }
 
+const renderRichConclusionText = (text: string) => {
+  if (!text) return null;
+
+  const regex = /(【[^】]+】|中洲科技集团|北京中科国控|中科国控|招标人|招标代理|专家单位)/g;
+  const parts = text.split(regex);
+
+  return (
+    <>
+      {parts.map((part, idx) => {
+        if (!part) return null;
+
+        if (part === '招标人') {
+          return (
+            <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200/90 mx-0.5">
+              招标人
+            </span>
+          );
+        }
+        if (part === '招标代理') {
+          return (
+            <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-teal-100 text-teal-800 border border-teal-200/90 mx-0.5">
+              招标代理
+            </span>
+          );
+        }
+        if (part === '专家单位') {
+          return (
+            <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200/90 mx-0.5">
+              专家单位
+            </span>
+          );
+        }
+
+        if (part === '中洲科技集团' || part === '北京中科国控' || part === '中科国控') {
+          return (
+            <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200/90 mx-0.5 shadow-2xs">
+              【{part}】
+            </span>
+          );
+        }
+
+        if (part.startsWith('【') && part.endsWith('】')) {
+          const rawName = part.slice(1, -1);
+          const isAssociated = ['中洲科技集团', '中科国控', '北京中科国控', '中洲投资', '母公司'].some(k => rawName.includes(k));
+
+          if (isAssociated) {
+            return (
+              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200/90 mx-0.5 shadow-2xs">
+                【{rawName}】
+              </span>
+            );
+          } else {
+            return (
+              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200/90 mx-0.5 shadow-2xs">
+                【{rawName}】
+              </span>
+            );
+          }
+        }
+
+        return <React.Fragment key={idx}>{part}</React.Fragment>;
+      })}
+    </>
+  );
+};
+
+const TypingEffectText: React.FC<{
+  text: string;
+  speed?: number;
+  skipAnimation?: boolean;
+  onComplete?: () => void;
+  renderRich?: (str: string) => React.ReactNode;
+}> = ({ text, speed = 20, skipAnimation = false, onComplete, renderRich }) => {
+  const [displayedLength, setDisplayedLength] = useState(skipAnimation ? text.length : 0);
+  const [isTyping, setIsTyping] = useState(!skipAnimation);
+
+  const onCompleteRef = React.useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    if (skipAnimation) {
+      setDisplayedLength(text.length);
+      setIsTyping(false);
+      return;
+    }
+
+    setDisplayedLength(0);
+    setIsTyping(true);
+    if (!text) return;
+
+    let current = 0;
+    const interval = setInterval(() => {
+      current += 1;
+      if (current >= text.length) {
+        setDisplayedLength(text.length);
+        setIsTyping(false);
+        clearInterval(interval);
+        if (onCompleteRef.current) {
+          onCompleteRef.current();
+        }
+      } else {
+        setDisplayedLength(current);
+      }
+    }, speed);
+
+    return () => clearInterval(interval);
+  }, [text, speed, skipAnimation]);
+
+  const currentSlice = text.slice(0, displayedLength);
+
+  return (
+    <span className="inline">
+      {renderRich ? renderRich(currentSlice) : currentSlice}
+      {isTyping && (
+        <span className="inline-block w-1.5 h-4 ml-1 bg-blue-600 animate-pulse align-middle rounded-2xs" />
+      )}
+    </span>
+  );
+};
+
+interface CategoryTreeNode {
+  id: string;
+  name: string;
+  weight?: string;
+  children?: {
+    id: string;
+    name: string;
+  }[];
+}
+
+const RULE_CATEGORY_TREE: CategoryTreeNode[] = [
+  {
+    id: 'cat-equity',
+    name: '股权关系维度',
+    weight: '权重40%',
+    children: [
+      { id: 'cat-equity-direct', name: '直接控股' },
+      { id: 'cat-equity-indirect', name: '间接控股' },
+      { id: 'cat-equity-join', name: '参股关系' },
+      { id: 'cat-equity-cross', name: '交叉持股' },
+      { id: 'cat-equity-mother', name: '同一母公司控制' },
+    ],
+  },
+  {
+    id: 'cat-personnel',
+    name: '人员关系维度',
+    weight: '权重30%',
+    children: [
+      { id: 'cat-personnel-legal', name: '法定代表人/负责人为同一人' },
+      { id: 'cat-personnel-exec', name: '董监交叉任职' },
+      { id: 'cat-personnel-relative', name: '近亲属关系' },
+      { id: 'cat-personnel-nominee', name: '股权代持' },
+    ],
+  },
+  {
+    id: 'cat-other',
+    name: '其他关联维度',
+    weight: '权重10%',
+    children: [
+      { id: 'cat-other-contact', name: '联系方式关联（电话、邮箱、地址）' },
+      { id: 'cat-other-history', name: '历史投标关联' },
+      { id: 'cat-other-accompany', name: '陪标单位排查' },
+      { id: 'cat-other-keyperson', name: '投标文件关键人员工作关联' },
+    ],
+  },
+];
+
+const getCategoryLabel = (id: string): string => {
+  if (id === 'all') return '规则分类: 全部';
+  for (const cat of RULE_CATEGORY_TREE) {
+    if (cat.id === id) return `大类: ${cat.name}`;
+    if (cat.children) {
+      const sub = cat.children.find((s) => s.id === id);
+      if (sub) return `规则: ${sub.name}`;
+    }
+  }
+  return '规则分类';
+};
+
 export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
   section,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'topology' | 'matrix' | 'contact_history' | 'accompanying' | 'companies'
+    'overview' | 'matrix' | 'companies'
   >('overview');
 
+  const [companySearchKeyword, setCompanySearchKeyword] = useState<string>('');
   const [contactFilter, setContactFilter] = useState<'all' | 'phone' | 'email' | 'address'>('all');
   const [contactDisplayMode, setContactDisplayMode] = useState<'table' | 'cards'>('table');
   const [contactSearchKeyword, setContactSearchKeyword] = useState<string>('');
   const [otherAssocSubTab, setOtherAssocSubTab] = useState<'contact' | 'history'>('contact');
 
+  const [matrixCompanySearch, setMatrixCompanySearch] = useState<string>('');
+  const [matrixCategorySearch, setMatrixCategorySearch] = useState<string>('all');
+  const [isCatTreeOpen, setIsCatTreeOpen] = useState<boolean>(false);
+
   const [expandedMatrixGroups, setExpandedMatrixGroups] = useState<Record<string, boolean>>({
     'matrix-grp-1': true,
     'matrix-grp-2': true,
     'matrix-grp-3': true,
+    'matrix-grp-4': true,
   });
 
   const [selectedEvidenceGroup, setSelectedEvidenceGroup] = useState<{
@@ -68,77 +259,40 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
     keyEvidence: string;
   } | null>(null);
 
+  const [detailPopup, setDetailPopup] = useState<{
+    type: 'topology' | 'history' | 'contact';
+    title: string;
+    subtitle?: string;
+  } | null>(null);
+
+  const [hasTypedConclusion, setHasTypedConclusion] = useState<boolean>(false);
+  const [visibleStepCount, setVisibleStepCount] = useState<number>(0);
+
+  useEffect(() => {
+    setHasTypedConclusion(false);
+    setVisibleStepCount(0);
+    const t1 = setTimeout(() => {
+      setVisibleStepCount(1);
+    }, 350);
+    const t2 = setTimeout(() => {
+      setVisibleStepCount(2);
+    }, 950);
+    const t3 = setTimeout(() => {
+      setVisibleStepCount(3);
+    }, 1550);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [section?.id]);
+
   const toggleMatrixGroup = (grpId: string) => {
     setExpandedMatrixGroups((prev) => ({
       ...prev,
       [grpId]: !prev[grpId],
     }));
-  };
-
-  const renderRichConclusionText = (text: string) => {
-    if (!text) return null;
-
-    const regex = /(【[^】]+】|中洲科技集团|北京中科国控|中科国控|招标人|招标代理|专家单位)/g;
-    const parts = text.split(regex);
-
-    return (
-      <>
-        {parts.map((part, idx) => {
-          if (!part) return null;
-
-          if (part === '招标人') {
-            return (
-              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200/90 mx-0.5">
-                招标人
-              </span>
-            );
-          }
-          if (part === '招标代理') {
-            return (
-              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-teal-100 text-teal-800 border border-teal-200/90 mx-0.5">
-                招标代理
-              </span>
-            );
-          }
-          if (part === '专家单位') {
-            return (
-              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200/90 mx-0.5">
-                专家单位
-              </span>
-            );
-          }
-
-          if (part === '中洲科技集团' || part === '北京中科国控' || part === '中科国控') {
-            return (
-              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200/90 mx-0.5 shadow-2xs">
-                【{part}】
-              </span>
-            );
-          }
-
-          if (part.startsWith('【') && part.endsWith('】')) {
-            const rawName = part.slice(1, -1);
-            const isAssociated = ['中洲科技集团', '中科国控', '北京中科国控', '中洲投资', '母公司'].some(k => rawName.includes(k));
-
-            if (isAssociated) {
-              return (
-                <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200/90 mx-0.5 shadow-2xs">
-                  【{rawName}】
-                </span>
-              );
-            } else {
-              return (
-                <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200/90 mx-0.5 shadow-2xs">
-                  【{rawName}】
-                </span>
-              );
-            }
-          }
-
-          return <React.Fragment key={idx}>{part}</React.Fragment>;
-        })}
-      </>
-    );
   };
 
   if (!section) return null;
@@ -298,20 +452,24 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
       ],
       triggerCount: 2,
       summaryBadges: [
-        { label: '股权关系 - 同一母公司控制关联', isEquity: true },
+        { label: '股权关系 - 同一母公司控制', isEquity: true },
         { label: '其他关联 - 联系方式关联', isEquity: false },
       ],
       overallRiskText: '高危 (1)',
       overallRiskType: 'high' as const,
       rules: [
         {
+          mainCatId: 'cat-equity',
+          subCatId: 'cat-equity-mother',
           typeTag: '股权关系',
-          ruleTitle: '同一母公司控制关联',
+          ruleTitle: '同一母公司控制',
           description: `存在同一母公司「${section.companies[2]?.name || '北京中科国控智能系统集团有限公司'}」控制关系`,
           statusText: '• 高危红线',
           statusType: 'high' as const,
         },
         {
+          mainCatId: 'cat-other',
+          subCatId: 'cat-other-contact',
           typeTag: '其他关联',
           ruleTitle: '联系方式关联',
           description: '近两年企业年报登记了相同的电子邮箱与电话号码（010-88481234）',
@@ -326,17 +484,29 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
         section.companies[1]?.name || '感知未来信息科技（北京）有限公司',
         section.companies[2]?.name || '北京中科国控智能系统集团有限公司',
       ],
-      triggerCount: 1,
+      triggerCount: 2,
       summaryBadges: [
-        { label: '股权关系 - 间接控股关联', isEquity: true },
+        { label: '股权关系 - 间接控股', isEquity: true },
+        { label: '人员关系 - 董监交叉任职', isEquity: true },
       ],
-      overallRiskText: '高危 (1)',
+      overallRiskText: '高危 (2)',
       overallRiskType: 'high' as const,
       rules: [
         {
+          mainCatId: 'cat-equity',
+          subCatId: 'cat-equity-indirect',
           typeTag: '股权关系',
-          ruleTitle: '间接控股关联',
+          ruleTitle: '间接控股',
           description: '存在间接控股关系，由母公司间接控制（穿透持股比例33%）',
+          statusText: '• 高危红线',
+          statusType: 'high' as const,
+        },
+        {
+          mainCatId: 'cat-personnel',
+          subCatId: 'cat-personnel-exec',
+          typeTag: '人员关系',
+          ruleTitle: '董监交叉任职',
+          description: '一方高级管理人员（监事 张伟）同时在另一方担任执行董事职务',
           statusText: '• 高危红线',
           statusType: 'high' as const,
         },
@@ -350,7 +520,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
       ],
       triggerCount: 3,
       summaryBadges: [
-        { label: '股权关系 - 交叉持股关联', isEquity: true },
+        { label: '股权关系 - 交叉持股', isEquity: true },
         { label: '其他关联 - 历史投标关联', isEquity: false },
         { label: '其他关联 - 办公地址重合', isEquity: false },
       ],
@@ -358,13 +528,17 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
       overallRiskType: 'high' as const,
       rules: [
         {
+          mainCatId: 'cat-equity',
+          subCatId: 'cat-equity-cross',
           typeTag: '股权关系',
-          ruleTitle: '交叉持股关联',
+          ruleTitle: '交叉持股',
           description: '双方存在互相持股结构与主要高管任命重合',
           statusText: '• 高危红线',
           statusType: 'high' as const,
         },
         {
+          mainCatId: 'cat-other',
+          subCatId: 'cat-other-history',
           typeTag: '其他关联',
           ruleTitle: '历史投标关联',
           description: '近24个月内同场竞标达 12 次，呈典型阶梯陪标特征',
@@ -372,6 +546,8 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
           statusType: 'high' as const,
         },
         {
+          mainCatId: 'cat-other',
+          subCatId: 'cat-other-contact',
           typeTag: '其他关联',
           ruleTitle: '办公地址重合',
           description: '企业年报登记实际办公场所位于同一综合办公大楼同层室',
@@ -380,33 +556,237 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
         },
       ],
     },
+    {
+      id: 'matrix-grp-4',
+      companies: [
+        section.companies[0]?.name || '中科城感知新技术有限公司',
+        section.companies[3]?.name || '华数物联科技有限公司',
+      ],
+      triggerCount: 3,
+      summaryBadges: [
+        { label: '股权关系 - 直接控股', isEquity: true },
+        { label: '人员关系 - 法定代表人同一人', isEquity: false },
+        { label: '其他关联 - 陪标单位排查', isEquity: false },
+      ],
+      overallRiskText: '高危 (3)',
+      overallRiskType: 'high' as const,
+      rules: [
+        {
+          mainCatId: 'cat-equity',
+          subCatId: 'cat-equity-direct',
+          typeTag: '股权关系',
+          ruleTitle: '直接控股',
+          description: '一方直接持有另一方超过 51% 股权，控制力明确',
+          statusText: '• 高危红线',
+          statusType: 'high' as const,
+        },
+        {
+          mainCatId: 'cat-personnel',
+          subCatId: 'cat-personnel-legal',
+          typeTag: '人员关系',
+          ruleTitle: '法定代表人/负责人为同一人',
+          description: '两家投标单位在工商登记中的法定代表人为同一自然人（李国强）',
+          statusText: '• 高危红线',
+          statusType: 'high' as const,
+        },
+        {
+          mainCatId: 'cat-other',
+          subCatId: 'cat-other-accompany',
+          typeTag: '其他关联',
+          ruleTitle: '陪标单位排查',
+          description: '投标保证金转账来自同一集中资金池账号，且投标文件制作MAC地址一致',
+          statusText: '• 高危红线',
+          statusType: 'high' as const,
+        },
+      ],
+    },
   ];
+
+  // Filtering matrix groups
+  const filteredMatrixGroups = matrixDataGroups
+    .map((grp) => {
+      // 1. Company Search
+      const companyKw = matrixCompanySearch.trim().toLowerCase();
+      const matchesCompany =
+        !companyKw ||
+        grp.companies.some((c) => c.toLowerCase().includes(companyKw));
+
+      if (!matchesCompany) return null;
+
+      // 2. Rule Category Search
+      if (matrixCategorySearch === 'all') {
+        return grp;
+      }
+
+      const isMainCat = RULE_CATEGORY_TREE.some((c) => c.id === matrixCategorySearch);
+
+      const matchingRules = grp.rules.filter((rule) => {
+        if (isMainCat) {
+          return rule.mainCatId === matrixCategorySearch;
+        } else {
+          return rule.subCatId === matrixCategorySearch;
+        }
+      });
+
+      if (matchingRules.length === 0) return null;
+
+      return {
+        ...grp,
+        rules: matchingRules,
+        triggerCount: matchingRules.length,
+      };
+    })
+    .filter(Boolean) as typeof matrixDataGroups;
 
   const renderEquityRelationMatrix = () => (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden space-y-0">
-      {/* Matrix Header */}
-      <div className="px-6 py-4 bg-white border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-full bg-rose-50 text-rose-600 border border-rose-200/80 shrink-0">
-            <ShieldAlert className="w-5 h-5" />
+      {/* Filter Toolbar */}
+      <div className="px-6 py-3.5 bg-slate-50/80 border-b border-slate-200/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+          {/* 1. 单位名称搜索 */}
+          <div className="relative flex-1 max-w-xs">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={matrixCompanySearch}
+              onChange={(e) => setMatrixCompanySearch(e.target.value)}
+              placeholder="搜索单位名称..."
+              className="w-full pl-9 pr-8 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400"
+            />
+            {matrixCompanySearch && (
+              <button
+                onClick={() => setMatrixCompanySearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
-          <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-            单位关联情况
-          </h3>
+
+          {/* 2. 规则分类树状搜索 */}
+          <div className="relative">
+            <button
+              onClick={() => setIsCatTreeOpen(!isCatTreeOpen)}
+              className={`w-full sm:w-auto inline-flex items-center justify-between gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-xl border transition-all cursor-pointer bg-white ${
+                matrixCategorySearch !== 'all'
+                  ? 'border-blue-500 text-blue-700 bg-blue-50/50 ring-2 ring-blue-500/20'
+                  : 'border-slate-200 text-slate-700 hover:bg-slate-100/80'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <Filter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span className="truncate">
+                  {getCategoryLabel(matrixCategorySearch)}
+                </span>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isCatTreeOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Tree Selector Dropdown Panel */}
+            {isCatTreeOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => setIsCatTreeOpen(false)}
+                />
+
+                <div className="absolute left-0 top-full mt-1.5 z-30 w-80 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-2 text-xs space-y-1 max-h-88 overflow-y-auto">
+                  <button
+                    onClick={() => {
+                      setMatrixCategorySearch('all');
+                      setIsCatTreeOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-2 font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                      matrixCategorySearch === 'all'
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>全部规则分类</span>
+                    {matrixCategorySearch === 'all' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                  </button>
+
+                  <div className="border-t border-slate-100 my-1" />
+
+                  {/* Tree Categories */}
+                  {RULE_CATEGORY_TREE.map((category) => {
+                    const isMainSelected = matrixCategorySearch === category.id;
+
+                    return (
+                      <div key={category.id} className="space-y-0.5">
+                        {/* 大类 (可选中!) */}
+                        <button
+                          onClick={() => {
+                            setMatrixCategorySearch(category.id);
+                            setIsCatTreeOpen(false);
+                          }}
+                          className={`w-full text-left px-3.5 py-1.5 font-bold flex items-center justify-between transition-colors cursor-pointer group ${
+                            isMainSelected
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-slate-900 hover:bg-slate-100/80'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <Folder className={`w-3.5 h-3.5 ${isMainSelected ? 'text-blue-600' : 'text-amber-500 group-hover:text-amber-600'}`} />
+                            <span>{category.name}</span>
+                            {category.weight && (
+                              <span className="text-[10px] font-normal text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                {category.weight}
+                              </span>
+                            )}
+                          </div>
+                          {isMainSelected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                        </button>
+
+                        {/* 小类 (缩进树形结构) */}
+                        <div className="pl-6 pr-2 space-y-0.5 border-l-2 border-slate-100 ml-5 my-0.5">
+                          {category.children?.map((sub) => {
+                            const isSubSelected = matrixCategorySearch === sub.id;
+
+                            return (
+                              <button
+                                key={sub.id}
+                                onClick={() => {
+                                  setMatrixCategorySearch(sub.id);
+                                  setIsCatTreeOpen(false);
+                                }}
+                                className={`w-full text-left px-2.5 py-1 rounded-lg font-medium flex items-center justify-between text-[11px] transition-colors cursor-pointer ${
+                                  isSubSelected
+                                    ? 'bg-blue-100/80 text-blue-800 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                                }`}
+                              >
+                                <span className="truncate">├─ {sub.name}</span>
+                                {isSubSelected && <Check className="w-3 h-3 text-blue-600 shrink-0 ml-1" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Reset Filters */}
+          {(matrixCompanySearch || matrixCategorySearch !== 'all') && (
+            <button
+              onClick={() => {
+                setMatrixCompanySearch('');
+                setMatrixCategorySearch('all');
+              }}
+              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 px-2 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              重置筛选
+            </button>
+          )}
         </div>
 
-        <div className="flex items-center gap-4 text-xs font-bold shrink-0">
-          <span className="inline-flex items-center gap-1.5 text-rose-600">
-            <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-            高危: {section.riskLevel === 'low' ? 0 : 2} 组
-          </span>
-          <span className="inline-flex items-center gap-1.5 text-amber-600">
-            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-            中危: {section.riskLevel === 'low' ? 0 : 7} 组
-          </span>
-          <span className="inline-flex items-center gap-1.5 text-purple-700">
-            问题总数: {section.riskLevel === 'low' ? 0 : 12} 项
-          </span>
+        <div className="text-xs font-medium text-slate-500 shrink-0">
+          包含排查记录: <span className="font-bold text-slate-900">{filteredMatrixGroups.length}</span> 组单位
         </div>
       </div>
 
@@ -417,25 +797,36 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
             <tr className="bg-slate-50/90 text-slate-600 border-b border-slate-200 font-bold">
               <th className="p-3.5 pl-6 w-1/4 min-w-[200px]">关联单位组</th>
               <th className="p-3.5 w-1/5 min-w-[160px]">关联类型</th>
-              <th className="p-3.5 w-2/5 min-w-[280px]">具体情况</th>
-              <th className="p-3.5 pr-6 w-28 text-center min-w-[100px]">风险状态</th>
+              <th className="p-3.5 w-2/5 min-w-[260px]">具体情况</th>
+              <th className="p-3.5 w-28 text-center min-w-[100px]">风险状态</th>
+              <th className="p-3.5 pr-6 w-28 text-center min-w-[100px]">查看详情</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
-            {matrixDataGroups.length === 0 ? (
+            {filteredMatrixGroups.length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-8 text-center bg-white">
+                <td colSpan={5} className="p-8 text-center bg-white">
                   <div className="flex flex-col items-center justify-center space-y-2">
-                    <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200">
-                      <CheckCircle2 className="w-5 h-5" />
+                    <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center border border-slate-200">
+                      <Search className="w-5 h-5" />
                     </div>
-                    <div className="text-sm font-bold text-slate-800">未排查出任何关联风险与触发规则</div>
-                    <p className="text-xs text-slate-500">经系统深度排查，各参标单位的股权、管理层、联系方式及历史投标均独立规范，无协同风险。</p>
+                    <div className="text-sm font-bold text-slate-800">未检索到匹配的单位风险记录</div>
+                    <p className="text-xs text-slate-500">尝试清除单位名称搜索或重置规则分类筛选条件。</p>
+                    <button
+                      onClick={() => {
+                        setMatrixCompanySearch('');
+                        setMatrixCategorySearch('all');
+                      }}
+                      className="mt-2 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      清除搜索与筛选
+                    </button>
                   </div>
                 </td>
               </tr>
             ) : (
-              matrixDataGroups.map((grp) => {
+              filteredMatrixGroups.map((grp) => {
               const isExpanded = expandedMatrixGroups[grp.id] !== false;
               const totalRowsForGroup = 1 + (isExpanded ? grp.rules.length : 0);
 
@@ -500,7 +891,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                     </td>
 
                     {/* 风险状态 (Summary) */}
-                    <td className="p-3.5 pr-6 text-center align-middle">
+                    <td className="p-3.5 text-center align-middle">
                       <span
                         className={`inline-flex items-center justify-center gap-1 px-3 py-0.5 rounded-full text-xs font-bold border ${
                           grp.overallRiskType === 'high'
@@ -511,6 +902,39 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                         <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
                         {grp.overallRiskText}
                       </span>
+                    </td>
+
+                    {/* 查看详情 (Summary) */}
+                    <td className="p-3.5 pr-6 text-center align-middle">
+                      <button
+                        onClick={() => {
+                          const hasEquity = grp.rules.some((r) => r.typeTag === '股权关系' || r.typeTag === '人员关系' || r.mainCatId === 'cat-equity' || r.mainCatId === 'cat-personnel');
+                          const hasHistory = grp.rules.some((r) => r.subCatId === 'cat-other-history' || r.ruleTitle.includes('历史投标'));
+                          if (hasEquity) {
+                            setDetailPopup({
+                              type: 'topology',
+                              title: '合规穿透与关联拓扑图谱',
+                              subtitle: grp.companies.join(' 与 '),
+                            });
+                          } else if (hasHistory) {
+                            setDetailPopup({
+                              type: 'history',
+                              title: '历史投标同场关联排查详情',
+                              subtitle: grp.companies.join(' 与 '),
+                            });
+                          } else {
+                            setDetailPopup({
+                              type: 'contact',
+                              title: '投标单位联系方式与关联排查详情',
+                              subtitle: grp.companies.join(' 与 '),
+                            });
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors cursor-pointer border border-blue-200/80"
+                      >
+                        <span>查看详情</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
 
@@ -525,6 +949,8 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 border ${
                                 rule.typeTag === '股权关系'
                                   ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : rule.typeTag === '人员关系'
+                                  ? 'bg-purple-50 text-purple-700 border-purple-200'
                                   : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               }`}
                             >
@@ -542,7 +968,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                         </td>
 
                         {/* 风险状态 (Detail) */}
-                        <td className="p-3.5 pr-6 text-center align-middle">
+                        <td className="p-3.5 text-center align-middle">
                           <span
                             className={`inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
                               rule.statusType === 'high'
@@ -552,6 +978,49 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                           >
                             {rule.statusText}
                           </span>
+                        </td>
+
+                        {/* 查看详情 (Detail) */}
+                        <td className="p-3.5 pr-6 text-center align-middle">
+                          <button
+                            onClick={() => {
+                              if (
+                                rule.typeTag === '股权关系' ||
+                                rule.typeTag === '人员关系' ||
+                                rule.mainCatId === 'cat-equity' ||
+                                rule.mainCatId === 'cat-personnel' ||
+                                rule.ruleTitle.includes('控股') ||
+                                rule.ruleTitle.includes('持股') ||
+                                rule.ruleTitle.includes('代表人') ||
+                                rule.ruleTitle.includes('任职')
+                              ) {
+                                setDetailPopup({
+                                  type: 'topology',
+                                  title: `股权与人员关系排查 - ${rule.ruleTitle}`,
+                                  subtitle: grp.companies.join(' 与 '),
+                                });
+                              } else if (
+                                rule.subCatId === 'cat-other-history' ||
+                                rule.ruleTitle.includes('历史投标')
+                              ) {
+                                setDetailPopup({
+                                  type: 'history',
+                                  title: `历史投标关联排查 - ${rule.ruleTitle}`,
+                                  subtitle: grp.companies.join(' 与 '),
+                                });
+                              } else {
+                                setDetailPopup({
+                                  type: 'contact',
+                                  title: `联系方式关联排查 - ${rule.ruleTitle}`,
+                                  subtitle: grp.companies.join(' 与 '),
+                                });
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-blue-600 hover:text-blue-800 hover:bg-blue-50 text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            <span>查看详情</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -652,19 +1121,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
             }`}
           >
             <LayoutDashboard className="w-4 h-4" />
-            单位关系风险总览
-          </button>
-
-          <button
-            onClick={() => setActiveTab('topology')}
-            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
-              activeTab === 'topology'
-                ? 'border-blue-600 text-blue-600 bg-white rounded-t-xl border-t border-x border-slate-200/90 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Network className="w-4 h-4" />
-            合规穿透与关联拓扑图谱
+            标段风险总览
           </button>
 
           <button
@@ -676,22 +1133,8 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
             }`}
           >
             <Grid className="w-4 h-4" />
-            单位关联情况
+            单位风险详情
           </button>
-
-          <button
-            onClick={() => setActiveTab('contact_history')}
-            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
-              activeTab === 'contact_history'
-                ? 'border-blue-600 text-blue-600 bg-white rounded-t-xl border-t border-x border-slate-200/90 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <PhoneCall className="w-4 h-4" />
-            其他关联排查 ({contactAssocs.length + historicalAssocs.length})
-          </button>
-
-
 
           <button
             onClick={() => setActiveTab('companies')}
@@ -702,7 +1145,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
             }`}
           >
             <Building2 className="w-4 h-4" />
-            投标单位画像 ({section.companies.length})
+            投标单位画像
           </button>
         </div>
 
@@ -750,17 +1193,17 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
 
                   <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex items-center justify-between">
                     <div>
-                      <div className="text-xs font-semibold text-slate-500 mb-1">高危单位组</div>
+                      <div className="text-xs font-semibold text-slate-500 mb-1">风险单位组数量</div>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-bold text-red-600">
-                          {conclusion.highRiskGroupCount}
+                        <span className="text-2xl font-bold text-rose-600">
+                          {conclusion.highRiskGroupCount || (section.riskLevel === 'high' ? 2 : section.riskLevel === 'medium' ? 1 : 0)}
                         </span>
-                        <span className="text-xs font-semibold text-slate-400">组</span>
+                        <span className="text-xs font-semibold text-slate-400">个</span>
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-1">存在高危红线关联集群</div>
+                      <div className="text-[11px] text-slate-400 mt-1">关联风险涉险单位组</div>
                     </div>
-                    <div className="p-3 rounded-xl bg-red-50 text-red-500">
-                      <AlertTriangle className="w-5 h-5" />
+                    <div className="p-3 rounded-xl bg-rose-50 text-rose-500">
+                      <Layers className="w-5 h-5" />
                     </div>
                   </div>
 
@@ -845,7 +1288,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                       </div>
 
                       {/* 1. 总的结论 */}
-                      <div className={`p-4 rounded-xl border text-sm text-slate-800 leading-relaxed ${
+                      <div className={`p-4 rounded-xl border text-sm text-slate-800 leading-relaxed min-h-[72px] ${
                         section.riskLevel === 'high'
                           ? 'bg-red-50/50 border-red-200'
                           : section.riskLevel === 'medium'
@@ -853,7 +1296,14 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                           : 'bg-blue-50/50 border-blue-200'
                       }`}>
                         <span className="font-bold text-slate-900 mr-1">【总审查结论】</span>
-                        {renderRichConclusionText(conclusion.summaryText)}
+                        <TypingEffectText
+                          key={section.id}
+                          text={conclusion.summaryText}
+                          speed={22}
+                          skipAnimation={hasTypedConclusion}
+                          onComplete={() => setHasTypedConclusion(true)}
+                          renderRich={renderRichConclusionText}
+                        />
                       </div>
 
                       {/* 2. 详情分析思考 */}
@@ -926,19 +1376,43 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                                     content: '依据《招投标法实施条例》第三十四条“存在控股关系的不同单位不得参加同一标段投标”之规定，建议评标委员会暂停开标进程，并将 5 家问题单位移交重点质询。'
                                   }
                                 ]
-                          ).map((step, idx) => (
-                            <div key={idx} className="p-3.5 rounded-xl bg-slate-50 border border-slate-100/90 space-y-1.5">
-                              <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${step.badgeClass}`}>
-                                  {step.label}
-                                </span>
-                                {step.title}
+                          ).map((step, idx) => {
+                            const isRevealed = idx < visibleStepCount;
+                            if (!isRevealed) {
+                              return (
+                                <div
+                                  key={`thinking-${section.id}-${idx}`}
+                                  className="p-3.5 rounded-xl bg-blue-50/40 border border-dashed border-blue-200/80 space-y-2 min-h-[85px] flex flex-col justify-center transition-all animate-pulse"
+                                >
+                                  <div className="flex items-center gap-1.5 text-xs text-blue-700 font-medium">
+                                    <Clock className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                                    <span>{step.label}：{step.title} — AI 深度推理研判中...</span>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="h-2 bg-blue-200/60 rounded w-5/6"></div>
+                                    <div className="h-2 bg-blue-200/40 rounded w-2/3"></div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div
+                                key={`revealed-${section.id}-${idx}`}
+                                className="p-3.5 rounded-xl bg-slate-50 border border-slate-100/90 space-y-1.5 animate-in fade-in slide-in-from-bottom-2 duration-400 shadow-2xs"
+                              >
+                                <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${step.badgeClass}`}>
+                                    {step.label}
+                                  </span>
+                                  {step.title}
+                                </div>
+                                <p className="text-xs text-slate-600 leading-relaxed">
+                                  {renderRichConclusionText(step.content)}
+                                </p>
                               </div>
-                              <p className="text-xs text-slate-600 leading-relaxed">
-                                {renderRichConclusionText(step.content)}
-                              </p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -947,93 +1421,12 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
 
               </div>
 
-              {/* 2. 中间：用“问题单位组”替代大柱状图 */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-blue-600" />
-                    问题单位组列表
-                  </h3>
-                  <span className="text-xs text-slate-400">已自动归集包含高度关联性单位的分组特征</span>
-                </div>
-
-                {riskGroups.length === 0 ? (
-                  <div className="bg-white rounded-2xl p-6 text-center text-slate-500 border border-slate-200">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                    本标段无触发风控规则的问题单位组。
-                  </div>
-                ) : (
-                  riskGroups.map((group) => (
-                    <div
-                      key={group.id}
-                      className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs hover:shadow-xs transition-all space-y-3"
-                    >
-                      {/* Card Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-slate-900 text-white">
-                            单位组
-                          </span>
-                          <h4 className="text-base font-bold text-slate-900">{group.groupName}</h4>
-                          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200">
-                            {group.riskLevel === 'high' ? '高风险' : '中风险'}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setActiveTab('topology')}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-bold transition-colors cursor-pointer"
-                          >
-                            <Network className="w-3.5 h-3.5" />
-                            查看股权穿透图
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Card Details Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                          <div className="font-bold text-slate-500 mb-1.5">涉及单位：</div>
-                          <div className="font-semibold text-slate-800 space-y-1">
-                            {group.companies.map((c, idx) => (
-                              <div key={idx} className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                                {c}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                          <div className="font-bold text-slate-500 mb-1.5">股权问题：</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {group.equityIssues.map((iss, iIdx) => (
-                              <span key={iIdx} className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200/90 rounded-md font-bold">
-                                {iss}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                          <div className="font-bold text-slate-500 mb-1.5">关键证据：</div>
-                          <p className="text-slate-700 leading-relaxed font-medium">
-                            {group.keyEvidence}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* 3. 底部：再放“股权问题清单” */}
+              {/* 3. 底部：再放“风险问题清单” */}
               <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                     <FileText className="w-4 h-4 text-blue-600" />
-                    股权问题清单
+                    风险问题清单
                   </h3>
                   <span className="text-xs text-slate-400">明细化展现穿透分析路径与证据链摘要</span>
                 </div>
@@ -1078,8 +1471,14 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                             </td>
                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
                               <button
-                                onClick={() => setActiveTab('topology')}
-                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 cursor-pointer"
+                                onClick={() =>
+                                  setDetailPopup({
+                                    type: 'topology',
+                                    title: `合规穿透与关联拓扑图谱 - ${item.issueType}`,
+                                    subtitle: item.companies.join('、'),
+                                  })
+                                }
+                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 cursor-pointer hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors"
                               >
                                 查看图谱
                                 <ArrowRight className="w-3 h-3" />
@@ -1096,430 +1495,156 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: 合规穿透与关联拓扑图谱 */}
-          {activeTab === 'topology' && (
-            <div className="space-y-6">
-              <InteractiveEquityTopology section={section} />
-            </div>
-          )}
-
-          {/* TAB 2.5: 单位关联情况 */}
+          {/* TAB 2: 单位关联情况 */}
           {activeTab === 'matrix' && (
             <div className="space-y-6">
               {renderEquityRelationMatrix()}
             </div>
           )}
 
-          {/* TAB 3: 其他关联排查 (含子页签: 联系方式, 历史投标) */}
-          {activeTab === 'contact_history' && (
-            <div className="space-y-5">
-              {/* Secondary Sub-Tabs */}
-              <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
-                <button
-                  onClick={() => setOtherAssocSubTab('contact')}
-                  className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
-                    otherAssocSubTab === 'contact'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
-                  }`}
-                >
-                  <Phone className="w-3.5 h-3.5" />
-                  联系方式
-                  <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      otherAssocSubTab === 'contact' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {section.companies.length} 家单位 / {contactAssocs.length} 项重合
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => setOtherAssocSubTab('history')}
-                  className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
-                    otherAssocSubTab === 'history'
-                      ? 'bg-purple-600 text-white shadow-xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
-                  }`}
-                >
-                  <History className="w-3.5 h-3.5" />
-                  历史投标
-                  <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      otherAssocSubTab === 'history' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {historicalAssocs.length} 组协同
-                  </span>
-                </button>
-              </div>
-
-              {/* Sub-Tab 1: 联系方式关联排查 */}
-              {otherAssocSubTab === 'contact' && (
-                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
-                        <PhoneCall className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                          投标单位联系方式关联排查列表
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
-                            section.riskLevel === 'low' || contactAssocs.length === 0
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}>
-                            共 {section.companies.length} 家单位 / 触发 {section.riskLevel === 'low' ? 0 : contactAssocs.length} 项重合
-                          </span>
-                        </h3>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          对比各投标单位工商登记、年报预留电话、注册/实际办公地址及电子邮箱信息
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Search box */}
-                    <div className="relative shrink-0">
-                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type="text"
-                        value={contactSearchKeyword}
-                        onChange={(e) => setContactSearchKeyword(e.target.value)}
-                        placeholder="搜索单位/电话/地址/邮箱..."
-                        className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  {/* TABLE VIEW (单位名称、联系电话、注册地址、邮箱) */}
-                  <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-2xs bg-white">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
-                          <th className="p-3 w-10 text-center">#</th>
-                          <th className="p-3 min-w-[180px]">投标单位名称</th>
-                          <th className="p-3 min-w-[130px]">
-                            <div className="flex items-center gap-1">
-                              <Phone className="w-3.5 h-3.5 text-blue-600" />
-                              联系电话
-                            </div>
-                          </th>
-                          <th className="p-3 min-w-[220px]">
-                            <div className="flex items-center gap-1">
-                              <MapPin className="w-3.5 h-3.5 text-amber-600" />
-                              注册 / 办公地址
-                            </div>
-                          </th>
-                          <th className="p-3 min-w-[180px]">
-                            <div className="flex items-center gap-1">
-                              <Mail className="w-3.5 h-3.5 text-purple-600" />
-                              电子邮箱
-                            </div>
-                          </th>
-                          <th className="p-3 min-w-[120px]">排查风险与重合标记</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {section.companies
-                          .filter((comp) => {
-                            if (!contactSearchKeyword) return true;
-                            const kw = contactSearchKeyword.toLowerCase();
-                            const phoneVal = comp.phone || '';
-                            const addrVal = comp.address || '';
-                            const emailVal = comp.email || '';
-                            return (
-                              comp.name.toLowerCase().includes(kw) ||
-                              phoneVal.toLowerCase().includes(kw) ||
-                              addrVal.toLowerCase().includes(kw) ||
-                              emailVal.toLowerCase().includes(kw) ||
-                              comp.legalPerson.toLowerCase().includes(kw)
-                            );
-                          })
-                          .map((comp, idx) => {
-                            // Determine overlaps
-                            const isLowRisk = section.riskLevel === 'low';
-                            const phoneVal = comp.phone || (
-                              isLowRisk
-                                ? `0571-88${200000 + idx * 13579}`
-                                : (contactAssocs.find(c => c.type.includes('电话') && c.involvedCompanies.some(ic => ic.companyName === comp.name))?.value || `0571-87${100000 + idx * 11111}`)
-                            );
-                            const addrVal = comp.address || (
-                              isLowRisk
-                                ? `${comp.name.includes('大禹') ? '甘肃省兰州市城关区高新技术产业园15号' : comp.name.includes('绿洲') ? '山东省济南市历下区产业创新大厦808室' : '黑龙江省哈尔滨市高新区示范路22号'}大厦`
-                                : (contactAssocs.find(c => c.type.includes('地址') && c.involvedCompanies.some(ic => ic.companyName === comp.name))?.value || `浙江省杭州市高新区科技路${(idx + 1) * 10}号${comp.name.substring(0, 4)}大厦`)
-                            );
-                            const emailVal = comp.email || (
-                              isLowRisk
-                                ? `contact@${comp.name.includes('大禹') ? 'dayu-water.com' : comp.name.includes('绿洲') ? 'lvzhou-agri.com' : 'heitudi-tech.com'}`
-                                : (contactAssocs.find(c => c.type.includes('邮箱') && c.involvedCompanies.some(ic => ic.companyName === comp.name))?.value || `contact@${comp.name.includes('华数') || comp.name.includes('智感') ? 'zhongzhou-group.com' : 'company-tech.com'}`)
-                            );
-
-                            const isPhoneOverlapped = !isLowRisk && (
-                              contactAssocs.some(
-                                (ca) => ca.type.includes('电话') && ca.value === phoneVal && ca.involvedCompanies.some(ic => ic.companyName === comp.name)
-                              ) || (section.riskLevel === 'high' && idx < 2)
-                            );
-
-                            const isAddrOverlapped = !isLowRisk && (
-                              contactAssocs.some(
-                                (ca) => ca.type.includes('地址') && ca.value === addrVal && ca.involvedCompanies.some(ic => ic.companyName === comp.name)
-                              ) || (section.riskLevel === 'high' && idx < 3)
-                            );
-
-                            const isEmailOverlapped = !isLowRisk && (
-                              contactAssocs.some(
-                                (ca) => ca.type.includes('邮箱') && ca.value === emailVal && ca.involvedCompanies.some(ic => ic.companyName === comp.name)
-                              ) || (section.riskLevel === 'high' && idx < 2 && emailVal.includes('zhongzhou'))
-                            );
-
-                            const overlapCount = (isPhoneOverlapped ? 1 : 0) + (isAddrOverlapped ? 1 : 0) + (isEmailOverlapped ? 1 : 0);
-
-                            return (
-                              <tr
-                                key={comp.id}
-                                className={`transition-colors ${
-                                  overlapCount >= 2
-                                    ? 'bg-rose-50/40 hover:bg-rose-50/70'
-                                    : overlapCount === 1
-                                    ? 'bg-amber-50/30 hover:bg-amber-50/60'
-                                    : 'hover:bg-slate-50'
-                                }`}
-                              >
-                                <td className="p-3 text-center font-mono text-slate-400 font-bold">{idx + 1}</td>
-                                
-                                {/* 单位名称 */}
-                                <td className="p-3">
-                                  <div className="font-extrabold text-slate-900 text-xs">
-                                    {comp.name}
-                                  </div>
-                                </td>
-
-                                {/* 联系电话 */}
-                                <td className="p-3 font-mono">
-                                  <span className={`font-bold select-all ${isPhoneOverlapped ? 'text-blue-700 underline decoration-blue-300' : 'text-slate-800'}`}>
-                                    {phoneVal}
-                                  </span>
-                                </td>
-
-                                {/* 注册地址 */}
-                                <td className="p-3">
-                                  <span className={`text-xs ${isAddrOverlapped ? 'font-bold text-amber-900 bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200 select-all' : 'text-slate-700'}`}>
-                                    {addrVal}
-                                  </span>
-                                </td>
-
-                                {/* 电子邮箱 */}
-                                <td className="p-3 font-mono text-xs">
-                                  <span className={`select-all ${isEmailOverlapped ? 'font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200' : 'text-slate-700'}`}>
-                                    {emailVal}
-                                  </span>
-                                </td>
-
-                                {/* 排查结论 */}
-                                <td className="p-3">
-                                  {overlapCount >= 2 ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs">
-                                      <AlertTriangle className="w-3 h-3 text-rose-600" />
-                                      高风险 (三重合)
-                                    </span>
-                                  ) : overlapCount === 1 ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                      <AlertCircle className="w-3 h-3 text-amber-600" />
-                                      中风险 (单重合)
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      <Check className="w-3 h-3 text-emerald-600" />
-                                      正常未触重
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Sub-Tab 2: 历史投标同场关联分析列表 */}
-              {otherAssocSubTab === 'history' && (
-                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
-                  <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3.5">
-                    <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-100">
-                      <History className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                        历史投标同场关联分析列表
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
-                          historicalAssocs.length === 0
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-purple-50 text-purple-700 border-purple-200'
-                        }`}>
-                          识别 {historicalAssocs.length} 组协同组合
-                        </span>
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        识别近24个月内同场竞标频次异常、胜率分布极度倾斜、报价呈固定梯度的组合
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    {historicalAssocs.length === 0 ? (
-                      <div className="bg-white rounded-2xl p-8 text-center text-slate-500 border border-slate-200 space-y-2">
-                        <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                        <div className="text-sm font-bold text-slate-800">未识别到历史投标同场协同组合</div>
-                        <p className="text-xs text-slate-500">近24个月内各投标单位无频次过高、陪标或梯度报价等异常同场竞标记录，属于独立规范竞标。</p>
-                      </div>
-                    ) : (
-                      historicalAssocs.map((item) => (
-                      <div
-                        key={item.id}
-                        className="p-4 rounded-xl border border-slate-200/90 bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-3.5"
-                      >
-                        {/* Header */}
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-slate-500">同场关联组：</span>
-                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs">
-                              {item.companyPair[0]}
-                            </span>
-                            <span className="text-rose-500 font-extrabold text-xs">↔ 频次协同 ↔</span>
-                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs">
-                              {item.companyPair[1]}
-                            </span>
-                          </div>
-
-                          <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
-                            ⚠️ {item.riskDegree}风险 (高度伴随陪标特征)
-                          </span>
-                        </div>
-
-                        {/* Quick Metrics bar */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <div className="bg-white p-3 rounded-xl border border-slate-200 text-xs">
-                            <div className="text-slate-500 text-[11px] mb-0.5 font-medium">同场参标频次</div>
-                            <div className="font-bold text-blue-700 text-sm">
-                              {item.coBidCount} 次{' '}
-                              <span className="text-[11px] text-slate-400 font-normal">({item.timeSpan})</span>
-                            </div>
-                          </div>
-                          <div className="bg-white p-3 rounded-xl border border-slate-200 text-xs">
-                            <div className="text-slate-500 text-[11px] mb-0.5 font-medium">中标/落选战绩分布</div>
-                            <div className="font-bold text-slate-800 text-xs">{item.winLossDistribution}</div>
-                          </div>
-                          <div className="bg-white p-3 rounded-xl border border-slate-200 text-xs">
-                            <div className="text-slate-500 text-[11px] mb-0.5 font-medium">历史报价平均梯度差</div>
-                            <div className="font-bold text-amber-700 text-xs">{item.priceGapAvg}</div>
-                          </div>
-                        </div>
-
-                        {/* Pattern summary box */}
-                        <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200/80 text-xs text-amber-900 font-medium flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span>
-                            <strong>同场协同行为模式：</strong> {item.patternSummary}
-                          </span>
-                        </div>
-
-                        {/* Recent projects preview */}
-                        {item.recentProjects && item.recentProjects.length > 0 && (
-                          <div className="space-y-1.5">
-                            <div className="text-[11px] font-bold text-slate-500">
-                              近期的共同参标历史记录（核验证据链）：
-                            </div>
-                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden text-xs">
-                              <table className="w-full text-left border-collapse">
-                                <thead>
-                                  <tr className="bg-slate-50 text-slate-500 text-[11px] border-b border-slate-200">
-                                    <th className="p-2.5 font-bold">历史投标项目名称</th>
-                                    <th className="p-2.5 font-bold">开标日期</th>
-                                    <th className="p-2.5 font-bold">实际中标单位</th>
-                                    <th className="p-2.5 font-bold">陪标报价阶梯差</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 text-slate-700">
-                                  {item.recentProjects.map((proj, pIdx) => (
-                                    <tr key={pIdx} className="hover:bg-slate-50/80">
-                                      <td className="p-2.5 font-semibold text-slate-900">{proj.projectName}</td>
-                                      <td className="p-2.5 text-slate-500 font-mono">{proj.bidDate}</td>
-                                      <td className="p-2.5 font-bold text-blue-700">{proj.winner}</td>
-                                      <td className="p-2.5 font-bold text-amber-600">{proj.priceGap}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
 
 
           {/* TAB 5: 投标单位画像 */}
-          {activeTab === 'companies' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {section.companies.map((comp) => (
-                <div
-                  key={comp.id}
-                  className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-3"
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-base">{comp.name}</h4>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        法定代表人: <span className="font-semibold text-slate-700">{comp.legalPerson}</span> | 注册资本: {comp.registeredCapital}
-                      </div>
-                    </div>
+          {activeTab === 'companies' && (() => {
+            const companyKw = companySearchKeyword.trim().toLowerCase();
+            const filteredProfileCompanies = section.companies.filter((comp) => {
+              if (!companyKw) return true;
+              return (
+                comp.name.toLowerCase().includes(companyKw) ||
+                comp.legalPerson.toLowerCase().includes(companyKw) ||
+                comp.shareholders.some((s) => s.name.toLowerCase().includes(companyKw))
+              );
+            });
+
+            return (
+              <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  {/* 单位名称搜索 */}
+                  <div className="relative shrink-0 max-w-xs w-full sm:w-72">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={companySearchKeyword}
+                      onChange={(e) => setCompanySearchKeyword(e.target.value)}
+                      placeholder="搜索单位名称..."
+                      className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400 font-medium"
+                    />
+                    {companySearchKeyword && (
+                      <button
+                        onClick={() => setCompanySearchKeyword('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
 
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <div className="text-xs font-bold text-slate-500 mb-2">主要股东构成</div>
-                    <div className="space-y-1">
-                      {comp.shareholders.map((s, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs">
-                          <span className={s.isCommon ? 'font-bold text-red-600' : 'text-slate-700'}>
-                            {s.name} {s.isCommon && '(重叠股东)'}
-                          </span>
-                          <span className="font-semibold text-slate-600">{s.ratio}</span>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="text-xs text-slate-500 font-medium">
+                    包含排查记录: <span className="font-bold text-slate-900">{filteredProfileCompanies.length}</span> 家单位
                   </div>
-
-                  {(comp.ipAddress || comp.macAddress) && (
-                    <div className="text-xs font-mono bg-sky-50 text-sky-800 border border-sky-200/90 p-2.5 rounded-xl space-y-0.5">
-                      {comp.ipAddress && <div><span className="font-semibold text-sky-600">IP Address:</span> {comp.ipAddress}</div>}
-                      {comp.macAddress && <div><span className="font-semibold text-sky-600">MAC Address:</span> {comp.macAddress}</div>}
-                    </div>
-                  )}
-
-                  {comp.riskFlags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {comp.riskFlags.map((flag, fIdx) => (
-                        <span
-                          key={fIdx}
-                          className="px-2 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600 border border-red-200"
-                        >
-                          ⚠️ {flag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              ))}
-            </div>
-          )}
+
+                <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-2xs bg-white">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+                        <th className="p-3 w-12 text-center">#</th>
+                        <th className="p-3 min-w-[200px]">投标单位名称</th>
+                        <th className="p-3 min-w-[150px]">法定代表人 / 注册资本</th>
+                        <th className="p-3 min-w-[220px]">主要股东构成与持股比例</th>
+                        <th className="p-3 min-w-[180px]">终端及网络特征标识</th>
+                        <th className="p-3 min-w-[150px]">风险标记与排查结论</th>
+                        <th className="p-3 w-28 text-center">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredProfileCompanies.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-400">
+                            未匹配到符合搜索条件的投标单位
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredProfileCompanies.map((comp, idx) => (
+                          <tr key={comp.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="p-3 text-center font-mono text-slate-400 font-bold">{idx + 1}</td>
+                            <td className="p-3">
+                              <div className="font-extrabold text-slate-900 text-xs">{comp.name}</div>
+                            </td>
+                            <td className="p-3">
+                              <div className="text-slate-800 font-medium">
+                                <span className="text-slate-500">法人：</span>
+                                <span className="font-bold text-slate-900">{comp.legalPerson}</span>
+                              </div>
+                              <div className="text-slate-500 text-[11px] mt-0.5">
+                                资本：<span className="font-semibold text-slate-700">{comp.registeredCapital}</span>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <div className="space-y-1">
+                                {comp.shareholders.map((s, i) => (
+                                  <div key={i} className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className={s.isCommon ? 'font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200' : 'text-slate-700'}>
+                                      {s.name} {s.isCommon && '(重叠股东)'}
+                                    </span>
+                                    <span className="font-mono font-semibold text-slate-500 shrink-0">{s.ratio}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              {(comp.ipAddress || comp.macAddress) ? (
+                                <div className="font-mono text-[11px] space-y-0.5 bg-sky-50/80 text-sky-900 border border-sky-200/80 p-2 rounded-lg">
+                                  {comp.ipAddress && <div><span className="text-sky-600 font-semibold">IP:</span> {comp.ipAddress}</div>}
+                                  {comp.macAddress && <div><span className="text-sky-600 font-semibold">MAC:</span> {comp.macAddress}</div>}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">网络标识独立无重合</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {comp.riskFlags.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {comp.riskFlags.map((flag, fIdx) => (
+                                    <span
+                                      key={fIdx}
+                                      className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200"
+                                    >
+                                      ⚠️ {flag}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  合规无异常
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              <button
+                                onClick={() =>
+                                  setDetailPopup({
+                                    type: 'topology',
+                                    title: `合规穿透与关联拓扑图谱 - ${comp.name}`,
+                                    subtitle: comp.name,
+                                  })
+                                }
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors cursor-pointer border border-blue-200/80 whitespace-nowrap"
+                              >
+                                查看图谱
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
         </div>
 
@@ -1651,7 +1776,11 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
               <button
                 onClick={() => {
                   setSelectedEvidenceGroup(null);
-                  setActiveTab('topology');
+                  setDetailPopup({
+                    type: 'topology',
+                    title: '合规穿透与关联拓扑图谱',
+                    subtitle: selectedEvidenceGroup.groupName,
+                  });
                 }}
                 className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors cursor-pointer"
               >
@@ -1662,6 +1791,420 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                 className="px-4 py-2 rounded-xl bg-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-300 transition-colors cursor-pointer"
               >
                 关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detail View Pop-up Modal (点击查看详情弹出层) */}
+      {detailPopup && (
+        <div
+          onClick={() => setDetailPopup(null)}
+          className="fixed inset-0 z-[100] bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 md:p-6 animate-in fade-in duration-200"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-7xl w-full max-h-[94vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-50/90 via-sky-50/90 to-blue-50/90 text-slate-900 flex flex-wrap items-center justify-between gap-3 border-b border-blue-100 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 rounded-xl bg-blue-100 text-blue-700 border border-blue-200/80 shrink-0">
+                  {detailPopup.type === 'topology' && <Network className="w-5 h-5" />}
+                  {detailPopup.type === 'history' && <History className="w-5 h-5" />}
+                  {detailPopup.type === 'contact' && <PhoneCall className="w-5 h-5" />}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2 truncate">
+                    {detailPopup.title}
+                  </h3>
+                  {detailPopup.subtitle && (
+                    <p className="text-xs text-slate-600 font-medium mt-0.5 truncate">
+                      涉及单位：{detailPopup.subtitle}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* View Switchers inside Popup */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-white border border-blue-200/80 p-1 rounded-xl shadow-2xs">
+                  <button
+                    onClick={() =>
+                      setDetailPopup((prev) =>
+                        prev ? { ...prev, type: 'topology', title: '合规穿透与关联拓扑图谱' } : null
+                      )
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      detailPopup.type === 'topology'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-blue-700 hover:bg-blue-50/80'
+                    }`}
+                  >
+                    <Network className="w-3.5 h-3.5" />
+                    拓扑图谱
+                  </button>
+                  <button
+                    onClick={() =>
+                      setDetailPopup((prev) =>
+                        prev ? { ...prev, type: 'history', title: '历史投标同场关联排查详情' } : null
+                      )
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      detailPopup.type === 'history'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-blue-700 hover:bg-blue-50/80'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    历史投标
+                  </button>
+                  <button
+                    onClick={() =>
+                      setDetailPopup((prev) =>
+                        prev ? { ...prev, type: 'contact', title: '联系方式关联排查列表' } : null
+                      )
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      detailPopup.type === 'contact'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-blue-700 hover:bg-blue-50/80'
+                    }`}
+                  >
+                    <PhoneCall className="w-3.5 h-3.5" />
+                    联系方式
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setDetailPopup(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-blue-100/60 transition-colors cursor-pointer shrink-0 ml-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-4 bg-slate-50/50">
+              {detailPopup.type === 'topology' && (
+                <InteractiveEquityTopology
+                  section={section}
+                  targetCompanyName={detailPopup.subtitle}
+                />
+              )}
+
+              {detailPopup.type === 'history' && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
+                  <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3.5">
+                    <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-100">
+                      <History className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                        历史投标同场关联分析列表
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
+                          historicalAssocs.length === 0
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-purple-50 text-purple-700 border-purple-200'
+                        }`}>
+                          识别 {historicalAssocs.length} 组协同组合
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        识别近24个月内同场竞标频次异常、胜率分布极度倾斜、报价呈固定梯度的组合
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {historicalAssocs.length === 0 ? (
+                      <div className="bg-white rounded-2xl p-8 text-center text-slate-500 border border-slate-200 space-y-2">
+                        <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                        <div className="text-sm font-bold text-slate-800">未识别到历史投标同场协同组合</div>
+                        <p className="text-xs text-slate-500">近24个月内各投标单位无频次过高、陪标或梯度报价等异常同场竞标记录，属于独立规范竞标。</p>
+                      </div>
+                    ) : (
+                      historicalAssocs.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-4 rounded-xl border border-slate-200/90 bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-3.5"
+                        >
+                          {/* Header */}
+                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-500">同场关联组：</span>
+                              <span className="font-extrabold text-xs sm:text-sm text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs">
+                                {item.companyPair[0]}
+                              </span>
+                              <span className="text-rose-500 font-extrabold text-xs">↔ 频次协同 ↔</span>
+                              <span className="font-extrabold text-xs sm:text-sm text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs">
+                                {item.companyPair[1]}
+                              </span>
+                            </div>
+
+                            <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
+                              ⚠️ {item.riskDegree}风险 (高度伴随陪标特征)
+                            </span>
+                          </div>
+
+                          {/* Quick Metrics bar */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="bg-white p-3 rounded-xl border border-slate-200 text-xs">
+                              <div className="text-slate-500 text-[11px] mb-0.5 font-medium">同场参标频次</div>
+                              <div className="font-bold text-blue-700 text-sm">
+                                {item.coBidCount} 次{' '}
+                                <span className="text-[11px] text-slate-400 font-normal">({item.timeSpan})</span>
+                              </div>
+                            </div>
+                            <div className="bg-white p-3 rounded-xl border border-slate-200 text-xs">
+                              <div className="text-slate-500 text-[11px] mb-0.5 font-medium">中标/落选战绩分布</div>
+                              <div className="font-bold text-slate-800 text-xs">{item.winLossDistribution}</div>
+                            </div>
+                            <div className="bg-white p-3 rounded-xl border border-slate-200 text-xs">
+                              <div className="text-slate-500 text-[11px] mb-0.5 font-medium">历史报价平均梯度差</div>
+                              <div className="font-bold text-amber-700 text-xs">{item.priceGapAvg}</div>
+                            </div>
+                          </div>
+
+                          {/* Pattern summary box */}
+                          <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200/80 text-xs text-amber-900 font-medium flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              <strong>同场协同行为模式：</strong> {item.patternSummary}
+                            </span>
+                          </div>
+
+                          {/* Recent projects preview */}
+                          {item.recentProjects && item.recentProjects.length > 0 && (
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-bold text-slate-500">
+                                近期的共同参标历史记录（核验证据链）：
+                              </div>
+                              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden text-xs">
+                                <table className="w-full text-left border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-50 text-slate-500 text-[11px] border-b border-slate-200">
+                                      <th className="p-2.5 font-bold">历史投标项目名称</th>
+                                      <th className="p-2.5 font-bold">开标日期</th>
+                                      <th className="p-2.5 font-bold">实际中标单位</th>
+                                      <th className="p-2.5 font-bold">陪标报价阶梯差</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                                    {item.recentProjects.map((proj, pIdx) => (
+                                      <tr key={pIdx} className="hover:bg-slate-50/80">
+                                        <td className="p-2.5 font-semibold text-slate-900">{proj.projectName}</td>
+                                        <td className="p-2.5 text-slate-500 font-mono">{proj.bidDate}</td>
+                                        <td className="p-2.5 font-bold text-blue-700">{proj.winner}</td>
+                                        <td className="p-2.5 font-bold text-amber-600">{proj.priceGap}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {detailPopup.type === 'contact' && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+                        <PhoneCall className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                          投标单位联系方式关联排查列表
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
+                            section.riskLevel === 'low' || contactAssocs.length === 0
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}>
+                            共 {section.companies.length} 家单位 / 触发 {section.riskLevel === 'low' ? 0 : contactAssocs.length} 项重合
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          对比各投标单位工商登记、年报预留电话、注册/实际办公地址及电子邮箱信息
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Search box */}
+                    <div className="relative shrink-0">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={contactSearchKeyword}
+                        onChange={(e) => setContactSearchKeyword(e.target.value)}
+                        placeholder="搜索单位/电话/地址/邮箱..."
+                        className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* TABLE VIEW */}
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-2xs bg-white">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+                          <th className="p-3 w-10 text-center">#</th>
+                          <th className="p-3 min-w-[180px]">投标单位名称</th>
+                          <th className="p-3 min-w-[130px]">
+                            <div className="flex items-center gap-1">
+                              <Phone className="w-3.5 h-3.5 text-blue-600" />
+                              联系电话
+                            </div>
+                          </th>
+                          <th className="p-3 min-w-[220px]">
+                            <div className="flex items-center gap-1">
+                              <MapPin className="w-3.5 h-3.5 text-amber-600" />
+                              注册 / 办公地址
+                            </div>
+                          </th>
+                          <th className="p-3 min-w-[180px]">
+                            <div className="flex items-center gap-1">
+                              <Mail className="w-3.5 h-3.5 text-purple-600" />
+                              电子邮箱
+                            </div>
+                          </th>
+                          <th className="p-3 min-w-[120px]">排查风险与重合标记</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {section.companies
+                          .filter((comp) => {
+                            if (!contactSearchKeyword) return true;
+                            const kw = contactSearchKeyword.toLowerCase();
+                            const phoneVal = comp.phone || '';
+                            const addrVal = comp.address || '';
+                            const emailVal = comp.email || '';
+                            return (
+                              comp.name.toLowerCase().includes(kw) ||
+                              phoneVal.toLowerCase().includes(kw) ||
+                              addrVal.toLowerCase().includes(kw) ||
+                              emailVal.toLowerCase().includes(kw) ||
+                              comp.legalPerson.toLowerCase().includes(kw)
+                            );
+                          })
+                          .map((comp, idx) => {
+                            const isLowRisk = section.riskLevel === 'low';
+                            const phoneVal = comp.phone || (
+                              isLowRisk
+                                ? `0571-88${200000 + idx * 13579}`
+                                : (contactAssocs.find(c => c.type.includes('电话') && c.involvedCompanies.some(ic => ic.companyName === comp.name))?.value || `0571-87${100000 + idx * 11111}`)
+                            );
+                            const addrVal = comp.address || (
+                              isLowRisk
+                                ? `${comp.name.includes('大禹') ? '甘肃省兰州市城关区高新技术产业园15号' : comp.name.includes('绿洲') ? '山东省济南市历下区产业创新大厦808室' : '黑龙江省哈尔滨市高新区示范路22号'}大厦`
+                                : (contactAssocs.find(c => c.type.includes('地址') && c.involvedCompanies.some(ic => ic.companyName === comp.name))?.value || `浙江省杭州市高新区科技路${(idx + 1) * 10}号${comp.name.substring(0, 4)}大厦`)
+                            );
+                            const emailVal = comp.email || (
+                              isLowRisk
+                                ? `contact@${comp.name.includes('大禹') ? 'dayu-water.com' : comp.name.includes('绿洲') ? 'lvzhou-agri.com' : 'heitudi-tech.com'}`
+                                : (contactAssocs.find(c => c.type.includes('邮箱') && c.involvedCompanies.some(ic => ic.companyName === comp.name))?.value || `contact@${comp.name.includes('华数') || comp.name.includes('智感') ? 'zhongzhou-group.com' : 'company-tech.com'}`)
+                            );
+
+                            const isPhoneOverlapped = !isLowRisk && (
+                              contactAssocs.some(
+                                (ca) => ca.type.includes('电话') && ca.value === phoneVal && ca.involvedCompanies.some(ic => ic.companyName === comp.name)
+                              ) || (section.riskLevel === 'high' && idx < 2)
+                            );
+
+                            const isAddrOverlapped = !isLowRisk && (
+                              contactAssocs.some(
+                                (ca) => ca.type.includes('地址') && ca.value === addrVal && ca.involvedCompanies.some(ic => ic.companyName === comp.name)
+                              ) || (section.riskLevel === 'high' && idx < 3)
+                            );
+
+                            const isEmailOverlapped = !isLowRisk && (
+                              contactAssocs.some(
+                                (ca) => ca.type.includes('邮箱') && ca.value === emailVal && ca.involvedCompanies.some(ic => ic.companyName === comp.name)
+                              ) || (section.riskLevel === 'high' && idx < 2 && emailVal.includes('zhongzhou'))
+                            );
+
+                            const overlapCount = (isPhoneOverlapped ? 1 : 0) + (isAddrOverlapped ? 1 : 0) + (isEmailOverlapped ? 1 : 0);
+
+                            return (
+                              <tr
+                                key={comp.id}
+                                className={`transition-colors ${
+                                  overlapCount >= 2
+                                    ? 'bg-rose-50/40 hover:bg-rose-50/70'
+                                    : overlapCount === 1
+                                    ? 'bg-amber-50/30 hover:bg-amber-50/60'
+                                    : 'hover:bg-slate-50'
+                                }`}
+                              >
+                                <td className="p-3 text-center font-mono text-slate-400 font-bold">{idx + 1}</td>
+                                
+                                <td className="p-3">
+                                  <div className="font-extrabold text-slate-900 text-xs">
+                                    {comp.name}
+                                  </div>
+                                </td>
+
+                                <td className="p-3 font-mono">
+                                  <span className={`font-bold select-all ${isPhoneOverlapped ? 'text-blue-700 underline decoration-blue-300' : 'text-slate-800'}`}>
+                                    {phoneVal}
+                                  </span>
+                                </td>
+
+                                <td className="p-3">
+                                  <span className={`text-xs ${isAddrOverlapped ? 'font-bold text-amber-900 bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200 select-all' : 'text-slate-700'}`}>
+                                    {addrVal}
+                                  </span>
+                                </td>
+
+                                <td className="p-3 font-mono text-xs">
+                                  <span className={`select-all ${isEmailOverlapped ? 'font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200' : 'text-slate-700'}`}>
+                                    {emailVal}
+                                  </span>
+                                </td>
+
+                                <td className="p-3">
+                                  {overlapCount >= 2 ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs">
+                                      <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                      高风险 (三重合)
+                                    </span>
+                                  ) : overlapCount === 1 ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                      <AlertCircle className="w-3 h-3 text-amber-600" />
+                                      中风险 (单重合)
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      正常未触重
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+              <div>标段：{section.sectionName}</div>
+              <button
+                onClick={() => setDetailPopup(null)}
+                className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                关闭详情窗口
               </button>
             </div>
           </div>
