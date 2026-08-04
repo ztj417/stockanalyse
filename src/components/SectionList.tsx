@@ -124,86 +124,109 @@ export const SectionList: React.FC<SectionListProps> = ({
 
       {/* Table Section */}
       <div className="overflow-x-auto -mx-5 sm:-mx-6">
-        <table className="w-full text-left border-collapse min-w-[760px]">
+        <table className="w-full text-left border-collapse min-w-[920px]">
           <thead>
             <tr className="border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              <th className="py-3.5 px-5 sm:px-6 w-[150px]">标段编号</th>
-              <th className="py-3.5 px-4">标段名称</th>
-              <th className="py-3.5 px-4 w-[130px]">投标单位家数</th>
-              <th className="py-3.5 px-4 w-[120px]">综合风险分</th>
-              <th className="py-3.5 px-4 w-[120px]">风险状态</th>
-              <th className="py-3.5 px-5 sm:px-6 text-right w-[150px]">操作</th>
+              <th className="py-3.5 px-5 sm:px-6 w-[140px]">标段编号</th>
+              <th className="py-3.5 px-4 min-w-[220px]">标段名称</th>
+              <th className="py-3.5 px-4 min-w-[240px]">风险情况</th>
+              <th className="py-3.5 px-4 w-[120px]">投标单位家数</th>
+              <th className="py-3.5 px-4 w-[110px]">综合风险分</th>
+              <th className="py-3.5 px-4 w-[110px]">风险状态</th>
+              <th className="py-3.5 px-5 sm:px-6 text-right w-[140px]">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100/80 text-sm">
             {pageSections.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-12 text-slate-400">
+                <td colSpan={7} className="text-center py-12 text-slate-400">
                   未匹配到相关标段数据
                 </td>
               </tr>
             ) : (
-              pageSections.map((sec) => (
-                <tr
-                  key={sec.id}
-                  className="hover:bg-slate-50/70 transition-colors group"
-                >
-                  {/* Code */}
-                  <td className="py-4 px-5 sm:px-6 text-slate-400 font-mono text-xs sm:text-sm font-medium whitespace-nowrap">
-                    {sec.code}
-                  </td>
+              pageSections.map((sec) => {
+                const riskTypes = sec.mainRiskTypes || [];
 
-                  {/* Name */}
-                  <td className="py-4 px-4 font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
-                    {sec.name}
-                  </td>
+                return (
+                  <tr
+                    key={sec.id}
+                    className="hover:bg-slate-50/70 transition-colors group"
+                  >
+                    {/* Code */}
+                    <td className="py-4 px-5 sm:px-6 text-slate-400 font-mono text-xs sm:text-sm font-medium whitespace-nowrap">
+                      {sec.code}
+                    </td>
 
-                  {/* Company count pill */}
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    <span className="inline-flex items-center px-3 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-600">
-                      {sec.companyCount} 家
-                    </span>
-                  </td>
+                    {/* Name */}
+                    <td className="py-4 px-4 font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                      {sec.name}
+                    </td>
 
-                  {/* Risk Score */}
-                  <td className="py-4 px-4 whitespace-nowrap text-slate-700 font-medium">
-                    <span className="font-semibold text-slate-800">{sec.riskScore}</span> 分
-                  </td>
+                    {/* Risk Types / Situation */}
+                    <td className="py-4 px-4">
+                      {riskTypes.length > 0 ? (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {riskTypes.map((rt, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100/90 text-slate-700 border border-slate-200/60"
+                            >
+                              {rt}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-300 text-xs">-</span>
+                      )}
+                    </td>
 
-                  {/* Risk Level Badge */}
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    {sec.riskLevel === 'high' && (
-                      <span className="inline-flex items-center gap-1.5 font-bold text-red-600 text-sm">
-                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                        高风险
+                    {/* Company count pill */}
+                    <td className="py-4 px-4 whitespace-nowrap">
+                      <span className="inline-flex items-center px-3 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-600">
+                        {sec.companyCount} 家
                       </span>
-                    )}
-                    {sec.riskLevel === 'medium' && (
-                      <span className="inline-flex items-center gap-1.5 font-bold text-amber-500 text-sm">
-                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                        中风险
-                      </span>
-                    )}
-                    {sec.riskLevel === 'low' && (
-                      <span className="inline-flex items-center gap-1.5 font-bold text-emerald-600 text-sm">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        低风险
-                      </span>
-                    )}
-                  </td>
+                    </td>
 
-                  {/* Action Link */}
-                  <td className="py-4 px-5 sm:px-6 text-right whitespace-nowrap">
-                    <button
-                      onClick={() => onSelectSection(sec)}
-                      className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer group/btn"
-                    >
-                      查看股权分析
-                      <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/btn:translate-x-0.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))
+                    {/* Risk Score */}
+                    <td className="py-4 px-4 whitespace-nowrap text-slate-700 font-medium">
+                      <span className="font-semibold text-slate-800">{sec.riskScore}</span> 分
+                    </td>
+
+                    {/* Risk Level Badge */}
+                    <td className="py-4 px-4 whitespace-nowrap">
+                      {sec.riskLevel === 'high' && (
+                        <span className="inline-flex items-center gap-1.5 font-bold text-red-600 text-sm">
+                          <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                          高风险
+                        </span>
+                      )}
+                      {sec.riskLevel === 'medium' && (
+                        <span className="inline-flex items-center gap-1.5 font-bold text-amber-500 text-sm">
+                          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                          中风险
+                        </span>
+                      )}
+                      {sec.riskLevel === 'low' && (
+                        <span className="inline-flex items-center gap-1.5 font-bold text-emerald-600 text-sm">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          低风险
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Action Link */}
+                    <td className="py-4 px-5 sm:px-6 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => onSelectSection(sec)}
+                        className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer group/btn"
+                      >
+                        查看股权分析
+                        <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/btn:translate-x-0.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

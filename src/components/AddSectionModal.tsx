@@ -38,6 +38,7 @@ export const AddSectionModal: React.FC<AddSectionModalProps> = ({
       riskLevel,
       budgetAmount,
       bidDate: new Date().toISOString().split('T')[0],
+      mainRiskTypes: riskScore >= 70 ? ['股权关系异常', '人员关系异常', '主体联系异常'] : riskScore >= 45 ? ['主体联系异常'] : [],
       riskSummary: riskScore >= 70 ? '新增监测标段风险较集中，需要进一步穿透分析' : '常规新建标段，暂未发现高度关联异常',
       companies: [
         {

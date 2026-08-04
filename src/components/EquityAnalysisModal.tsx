@@ -225,12 +225,101 @@ const getCategoryLabel = (id: string): string => {
   return '规则分类';
 };
 
+interface CompanyPaths {
+  upPathStr: string;
+  downPathStr: string;
+  combinedPathStr: string;
+}
+
+const getCompany3LayerPaths = (comp: { name: string; legalPerson: string; shareholders: { name: string; ratio: string }[] }): CompanyPaths => {
+  const cName = comp.name;
+
+  if (cName.includes('星脉感知')) {
+    return {
+      upPathStr: '陈志远<-[实际控制人]<-中洲投资合伙企业<-[持股85%]<-星脉感知通信技术有限公司',
+      downPathStr: '星脉感知通信技术有限公司->[全资100%]->星脉感知数字技术有限公司->[控股70%]->星脉感知智能装备有限公司',
+      combinedPathStr: '陈志远<-[实际控制人]<-中洲投资合伙企业<-[持股85%]<-星脉感知通信技术有限公司->[全资100%]->星脉感知数字技术有限公司->[控股70%]->星脉感知智能装备有限公司',
+    };
+  }
+
+  if (cName.includes('华数物联')) {
+    return {
+      upPathStr: '张建国<-[最终受益人]<-中洲科技集团有限公司<-[持股65%]<-华数物联科技有限公司',
+      downPathStr: '华数物联科技有限公司->[全资100%]->华数物联感知终端有限公司->[控股60%]->华数物联智造工程有限公司',
+      combinedPathStr: '张建国<-[最终受益人]<-中洲科技集团有限公司<-[持股65%]<-华数物联科技有限公司->[全资100%]->华数物联感知终端有限公司->[控股60%]->华数物联智造工程有限公司',
+    };
+  }
+
+  if (cName.includes('智感云联')) {
+    return {
+      upPathStr: '张建国<-[最终受益人]<-中洲科技集团有限公司<-[持股51%]<-智感云联（浙江）数据系统有限公司',
+      downPathStr: '智感云联（浙江）数据系统有限公司->[全资100%]->智感云联数据技术有限公司->[控股65%]->智感云能算力系统有限公司',
+      combinedPathStr: '张建国<-[最终受益人]<-中洲科技集团有限公司<-[持股51%]<-智感云联（浙江）数据系统有限公司->[全资100%]->智感云联数据技术有限公司->[控股65%]->智感云能算力系统有限公司',
+    };
+  }
+
+  if (cName.includes('国讯时代')) {
+    return {
+      upPathStr: '王建军<-[实际控制人]<-国讯科技集团有限公司<-[持股80%]<-国讯时代网络工程有限公司',
+      downPathStr: '国讯时代网络工程有限公司->[全资100%]->国讯网络运维服务有限公司->[控股75%]->国讯数据中心工程有限公司',
+      combinedPathStr: '王建军<-[实际控制人]<-国讯科技集团有限公司<-[持股80%]<-国讯时代网络工程有限公司->[全资100%]->国讯网络运维服务有限公司->[控股75%]->国讯数据中心工程有限公司',
+    };
+  }
+
+  if (cName.includes('云智安防')) {
+    return {
+      upPathStr: '刘强<-[实际控制人]<-云智高科集团有限公司<-[持股70%]<-杭州云智安防系统工程有限公司',
+      downPathStr: '杭州云智安防系统工程有限公司->[全资100%]->云智安防工程服务有限公司->[控股55%]->云智视频监控技术有限公司',
+      combinedPathStr: '刘强<-[实际控制人]<-云智高科集团有限公司<-[持股70%]<-杭州云智安防系统工程有限公司->[全资100%]->云智安防工程服务有限公司->[控股55%]->云智视频监控技术有限公司',
+    };
+  }
+
+  if (cName.includes('联创数字')) {
+    return {
+      upPathStr: '赵立新<-[实际控制人]<-浙江联创控股集团有限公司<-[持股100%]<-浙江联创数字技术有限公司',
+      downPathStr: '浙江联创数字技术有限公司->[全资100%]->联创数字软件技术有限公司->[控股75%]->联创云服信息技术有限公司',
+      combinedPathStr: '赵立新<-[实际控制人]<-浙江联创控股集团有限公司<-[持股100%]<-浙江联创数字技术有限公司->[全资100%]->联创数字软件技术有限公司->[控股75%]->联创云服信息技术有限公司',
+    };
+  }
+
+  if (cName.includes('海润信息')) {
+    return {
+      upPathStr: '钱伟<-[实际控制人]<-宁波海润实业投资有限公司<-[持股80%]<-宁波海润信息工程有限公司',
+      downPathStr: '宁波海润信息工程有限公司->[全资100%]->海润信息设备有限公司->[控股60%]->海润智能终端有限公司',
+      combinedPathStr: '钱伟<-[实际控制人]<-宁波海润实业投资有限公司<-[持股80%]<-宁波海润信息工程有限公司->[全资100%]->海润信息设备有限公司->[控股60%]->海润智能终端有限公司',
+    };
+  }
+
+  if (cName.includes('数智物联')) {
+    return {
+      upPathStr: '孙海<-[实际控制人]<-温州数投产业发展集团<-[持股60%]<-温州数智物联网有限公司',
+      downPathStr: '温州数智物联网有限公司->[全资100%]->温州数智传感终端有限公司->[控股70%]->数智物联智能制造有限公司',
+      combinedPathStr: '孙海<-[实际控制人]<-温州数投产业发展集团<-[持股60%]<-温州数智物联网有限公司->[全资100%]->温州数智传感终端有限公司->[控股70%]->数智物联智能制造有限公司',
+    };
+  }
+
+  const topShareholder = comp.shareholders[0];
+  const l1Name = topShareholder?.name || comp.legalPerson;
+  const l2Name = topShareholder ? `${topShareholder.name}集团` : `${comp.legalPerson}控股平台`;
+  const basePrefix = cName.replace(/(科技|数据|网络|通信|信息|工程|系统|物联网|安防)?(有限|股份)?公司$/, '');
+  const ratioTag = topShareholder?.ratio ? `持股${topShareholder.ratio}` : '持股60%';
+
+  const up = `${l1Name}<-[实际控制]<-${l2Name}<-[${ratioTag}]<-${cName}`;
+  const down = `${cName}->[全资100%]->${basePrefix}技术服务有限公司->[控股70%]->${basePrefix}智能终端有限公司`;
+
+  return {
+    upPathStr: up,
+    downPathStr: down,
+    combinedPathStr: `${l1Name}<-[实际控制]<-${l2Name}<-[${ratioTag}]<-${cName}->[全资100%]->${basePrefix}技术服务有限公司->[控股70%]->${basePrefix}智能终端有限公司`,
+  };
+};
+
 export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
   section,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'matrix' | 'companies'
+    'overview' | 'matrix' | 'topology' | 'companies'
   >('overview');
 
   const [companySearchKeyword, setCompanySearchKeyword] = useState<string>('');
@@ -1137,6 +1226,18 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('topology')}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+              activeTab === 'topology'
+                ? 'border-blue-600 text-blue-600 bg-white rounded-t-xl border-t border-x border-slate-200/90 shadow-2xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Network className="w-4 h-4" />
+            单位关系图谱
+          </button>
+
+          <button
             onClick={() => setActiveTab('companies')}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
               activeTab === 'companies'
@@ -1502,6 +1603,13 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
             </div>
           )}
 
+          {/* TAB 3: 单位关系图谱 */}
+          {activeTab === 'topology' && (
+            <div className="space-y-6">
+              <InteractiveEquityTopology section={section} />
+            </div>
+          )}
+
 
 
           {/* TAB 5: 投标单位画像 */}
@@ -1552,15 +1660,14 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                         <th className="p-3 min-w-[200px]">投标单位名称</th>
                         <th className="p-3 min-w-[150px]">法定代表人 / 注册资本</th>
                         <th className="p-3 min-w-[220px]">主要股东构成与持股比例</th>
-                        <th className="p-3 min-w-[180px]">终端及网络特征标识</th>
-                        <th className="p-3 min-w-[150px]">风险标记与排查结论</th>
+                        <th className="p-3 min-w-[380px]">关联路径（上下穿透3层）</th>
                         <th className="p-3 w-28 text-center">操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredProfileCompanies.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="p-8 text-center text-slate-400">
+                          <td colSpan={6} className="p-8 text-center text-slate-400">
                             未匹配到符合搜索条件的投标单位
                           </td>
                         </tr>
@@ -1593,33 +1700,14 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                               </div>
                             </td>
                             <td className="p-3">
-                              {(comp.ipAddress || comp.macAddress) ? (
-                                <div className="font-mono text-[11px] space-y-0.5 bg-sky-50/80 text-sky-900 border border-sky-200/80 p-2 rounded-lg">
-                                  {comp.ipAddress && <div><span className="text-sky-600 font-semibold">IP:</span> {comp.ipAddress}</div>}
-                                  {comp.macAddress && <div><span className="text-sky-600 font-semibold">MAC:</span> {comp.macAddress}</div>}
-                                </div>
-                              ) : (
-                                <span className="text-slate-400 italic text-[11px]">网络标识独立无重合</span>
-                              )}
-                            </td>
-                            <td className="p-3">
-                              {comp.riskFlags.length > 0 ? (
-                                <div className="flex flex-wrap gap-1">
-                                  {comp.riskFlags.map((flag, fIdx) => (
-                                    <span
-                                      key={fIdx}
-                                      className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200"
-                                    >
-                                      ⚠️ {flag}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  <Check className="w-3 h-3 text-emerald-600" />
-                                  合规无异常
-                                </span>
-                              )}
+                              {(() => {
+                                const paths = getCompany3LayerPaths(comp);
+                                return (
+                                  <div className="font-mono text-[11px] text-slate-800 bg-slate-50/90 border border-slate-200/90 p-2.5 rounded-xl break-all min-w-[320px] leading-relaxed select-text">
+                                    {paths.combinedPathStr}
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="p-3 text-center">
                               <button

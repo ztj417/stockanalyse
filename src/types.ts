@@ -119,4 +119,5 @@ export interface SectionItem {
   companies: BiddingCompany[];
   equityRelations: EquityRelation[];
   suspiciousFactors: { title: string; desc: string; severity: 'high' | 'medium' | 'low' }[];
+  mainRiskTypes?: string[];
 }

@@ -10,6 +10,7 @@ export const INITIAL_SECTIONS: SectionItem[] = [
     riskLevel: 'high',
     budgetAmount: '1,850.00 万元',
     bidDate: '2026-07-15',
+    mainRiskTypes: ['股权关系异常', '人员关系异常', '主体联系异常'],
     riskSummary: '检测到3家投标单位存在高度股权重叠与同一自然人终极控制线，投标报价呈高度等差一致性，疑似围标/串标。',
     conclusionData: {
       issueCategoriesCount: 3,
@@ -316,6 +317,7 @@ export const INITIAL_SECTIONS: SectionItem[] = [
     riskLevel: 'medium',
     budgetAmount: '980.00 万元',
     bidDate: '2026-07-18',
+    mainRiskTypes: ['人员关系异常'],
     riskSummary: '部分投标单位高管历史上存在同业任职背景，且投标预算清单项错别字完全一致。',
     companies: [
       {
@@ -382,6 +384,7 @@ export const INITIAL_SECTIONS: SectionItem[] = [
     riskLevel: 'low',
     budgetAmount: '450.00 万元',
     bidDate: '2026-07-20',
+    mainRiskTypes: [],
     riskSummary: '企业股权独立，未发现关联交易或同源投标轨迹，风险评估为健康。',
     companies: [
       {
@@ -421,6 +424,7 @@ export const INITIAL_SECTIONS: SectionItem[] = [
     riskLevel: 'high',
     budgetAmount: '1,200.00 万元',
     bidDate: '2026-07-12',
+    mainRiskTypes: ['股权关系异常', '人员关系异常'],
     riskSummary: '投标人A与投标人B的合伙人存在夫妻关系，且两家投标文件作者Metadata属性完全一致。',
     companies: [
       {
@@ -471,6 +475,7 @@ export const INITIAL_SECTIONS: SectionItem[] = [
     riskLevel: 'medium',
     budgetAmount: '620.00 万元',
     bidDate: '2026-07-10',
+    mainRiskTypes: ['主体联系异常', '人员关系异常'],
     riskSummary: '两家参与单位注册地址在同一商务楼同层相邻房间，且联系电话登记相同。',
     companies: [
       {
