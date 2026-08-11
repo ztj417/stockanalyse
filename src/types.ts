@@ -120,4 +120,5 @@ export interface SectionItem {
   equityRelations: EquityRelation[];
   suspiciousFactors: { title: string; desc: string; severity: 'high' | 'medium' | 'low' }[];
   mainRiskTypes?: string[];
+  riskCount?: number;
 }

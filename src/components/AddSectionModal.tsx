@@ -36,6 +36,7 @@ export const AddSectionModal: React.FC<AddSectionModalProps> = ({
       companyCount: Number(companyCount) || 3,
       riskScore: Number(riskScore) || 50,
       riskLevel,
+      riskCount: riskScore >= 70 ? 3 : riskScore >= 45 ? 1 : 0,
       budgetAmount,
       bidDate: new Date().toISOString().split('T')[0],
       mainRiskTypes: riskScore >= 70 ? ['股权关系异常', '人员关系异常', '主体联系异常'] : riskScore >= 45 ? ['主体联系异常'] : [],
