@@ -22,7 +22,12 @@ import {
   ChevronDown,
   Check,
   Filter,
-  X
+  X,
+  PhoneCall,
+  Mail,
+  MapPin,
+  UserRound,
+  Landmark
 } from 'lucide-react';
 import { SectionItem } from '../types';
 
@@ -102,7 +107,7 @@ export type EquityFilterType =
 interface TopologyNode {
   id: string;
   name: string;
-  type: 'ultimate' | 'spv' | 'person' | 'bidding_company';
+  type: 'ultimate' | 'spv' | 'person' | 'bidding_company' | 'contact_evidence';
   legalPerson?: string;
   registeredCapital?: string;
   shareRatio?: string;
@@ -116,7 +121,7 @@ interface TopologyEdge {
   id: string;
   source: string;
   target: string;
-  category: 'equity' | 'personnel';
+  category: 'equity' | 'personnel' | 'contact';
   relationType:
     | 'direct'
     | 'indirect'
@@ -125,21 +130,136 @@ interface TopologyEdge {
     | 'same_legal_person'
     | 'cross_executive'
     | 'close_relatives'
-    | 'nominee_shareholder';
+    | 'nominee_shareholder'
+    | 'contact_phone'
+    | 'contact_email'
+    | 'contact_address';
   label: string;
   detailText: string;
   holdingRatio?: string;
   riskLevel: 'high' | 'medium' | 'low';
 }
 
+const isCompanyLikeName = (name: string) =>
+  /公司|集团|有限|股份|银行|分公司|中心|企业|合伙|厂|局|院|所|社|AG|Limited|LIMITED/i.test(name);
+
+const isBranchLikeName = (name: string) => /分公司|分支机构/.test(name);
+
+const getPathRelationType = (label: string): TopologyEdge['relationType'] => {
+  if (/分支机构/.test(label)) return 'same_parent';
+  if (/任职|法人|董事|监事|负责人|经理/.test(label)) return 'same_legal_person';
+  if (/历史/.test(label)) return 'indirect';
+  return 'direct';
+};
+
+const getPathRelationCategory = (label: string): TopologyEdge['category'] =>
+  /任职|法人|董事|监事|负责人|经理/.test(label) ? 'personnel' : 'equity';
+
+const parseRelationPathSegments = (rawPath: string) => {
+  const compactPath = rawPath.replace(/\s+/g, '');
+  const connectorRegex = /(<-([^-<>]+?)-|-([^-<>]+?)->)/g;
+  const entities: string[] = [];
+  const connectors: { direction: 'left' | 'right'; label: string }[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = connectorRegex.exec(compactPath)) !== null) {
+    const entity = compactPath.slice(cursor, match.index).trim();
+    if (entity) entities.push(entity);
+    connectors.push({
+      direction: match[2] ? 'left' : 'right',
+      label: (match[2] || match[3] || '').trim()
+    });
+    cursor = match.index + match[0].length;
+  }
+
+  const tailEntity = compactPath.slice(cursor).trim();
+  if (tailEntity) entities.push(tailEntity);
+
+  return { entities, connectors };
+};
+
+const getLayeredPathRows = (
+  nodeNames: string[],
+  pathItems: { parsed: { entities: string[]; connectors: { direction: 'left' | 'right'; label: string }[] } }[]
+) => {
+  const incoming = new Map<string, Set<string>>();
+  const outgoing = new Map<string, Set<string>>();
+  nodeNames.forEach((name) => {
+    incoming.set(name, new Set());
+    outgoing.set(name, new Set());
+  });
+
+  pathItems.forEach((issue) => {
+    issue.parsed.connectors.forEach((connector, index) => {
+      const leftName = issue.parsed.entities[index];
+      const rightName = issue.parsed.entities[index + 1];
+      const sourceName = connector.direction === 'left' ? rightName : leftName;
+      const targetName = connector.direction === 'left' ? leftName : rightName;
+      outgoing.get(sourceName)?.add(targetName);
+      incoming.get(targetName)?.add(sourceName);
+    });
+  });
+
+  const roots = nodeNames.filter((name) => {
+    const inCount = incoming.get(name)?.size || 0;
+    const outCount = outgoing.get(name)?.size || 0;
+    return inCount === 0 && outCount > 0;
+  });
+  const startNames = roots.length > 0
+    ? roots
+    : nodeNames.filter((name) => !isCompanyLikeName(name) || ((outgoing.get(name)?.size || 0) >= (incoming.get(name)?.size || 0)));
+  const queue = (startNames.length > 0 ? startNames : [nodeNames[0]]).map((name) => ({ name, depth: 0 }));
+  const depthByName = new Map<string, number>();
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const previousDepth = depthByName.get(current.name);
+    if (previousDepth !== undefined && previousDepth <= current.depth) continue;
+    if (current.depth > nodeNames.length) continue;
+    depthByName.set(current.name, current.depth);
+    (outgoing.get(current.name) || new Set()).forEach((targetName) => {
+      const nextDepth = current.depth + 1;
+      const knownDepth = depthByName.get(targetName);
+      if (knownDepth === undefined || nextDepth < knownDepth) {
+        queue.push({ name: targetName, depth: nextDepth });
+      }
+    });
+  }
+
+  nodeNames.forEach((name) => {
+    if (!depthByName.has(name)) {
+      const incomingDepths = Array.from(incoming.get(name) || [])
+        .map((sourceName) => depthByName.get(sourceName))
+        .filter((depth): depth is number => depth !== undefined);
+      depthByName.set(name, incomingDepths.length > 0 ? Math.max(...incomingDepths) + 1 : 0);
+    }
+  });
+
+  const rows: string[][] = [];
+  nodeNames.forEach((name) => {
+    const depth = depthByName.get(name) || 0;
+    if (!rows[depth]) rows[depth] = [];
+    rows[depth].push(name);
+  });
+
+  return rows.filter((row) => row.length > 0);
+};
+
 interface InteractiveEquityTopologyProps {
   section: SectionItem;
   targetCompanyName?: string;
+  graphMode?: 'default' | 'contactEvidence';
+  focusIssueId?: string;
+  relationPath?: string;
 }
 
 export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps> = ({
   section,
-  targetCompanyName
+  targetCompanyName,
+  graphMode = 'default',
+  focusIssueId,
+  relationPath
 }) => {
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [isCatTreeOpen, setIsCatTreeOpen] = useState(false);
@@ -148,7 +268,7 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomLevel, setZoomLevel] = useState(() => (relationPath ? 0.86 : 1));
   const [showLegendModal, setShowLegendModal] = useState(false);
   const [onlyShowProblemCompanies, setOnlyShowProblemCompanies] = useState(true);
 
@@ -166,7 +286,14 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
     }
   }, [targetCompanyName, section.companies]);
 
+  useEffect(() => {
+    if (relationPath) setZoomLevel(0.86);
+  }, [relationPath]);
+
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  const isContactEvidenceMode = graphMode === 'contactEvidence';
+  const isRelationPathMode = Boolean(relationPath && !isContactEvidenceMode);
 
   // Wheel zoom handler: allows zooming in/out using mouse scroll wheel inside graph canvas
   useEffect(() => {
@@ -190,14 +317,292 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
 
   // Construct nodes and edges with wide, clean spacing
   const { nodes, edges, canvasWidth } = useMemo(() => {
+    if (relationPath && !isContactEvidenceMode) {
+      const issue = focusIssueId ? section.equityIssueList?.find((item) => item.id === focusIssueId) : undefined;
+      const riskLevel = issue?.riskLevel || 'high';
+      const issueCompanyNames = new Set([
+        ...(issue?.companies || []),
+        ...(targetCompanyName?.split('、').map((name) => name.trim()).filter(Boolean) || [])
+      ]);
+      const getCompanyRole = (companyName: string) => (issueCompanyNames.has(companyName) ? '投标单位' : '关联单位');
+      const findCompany = (companyName: string) => section.companies.find((company) => company.name === companyName);
+
+      const { entities, connectors } = parseRelationPathSegments(relationPath);
+
+      if (entities.length >= 2 && connectors.length === entities.length - 1) {
+        const uniqueNames: string[] = [];
+        entities.forEach((name) => {
+          if (!uniqueNames.includes(name)) uniqueNames.push(name);
+        });
+
+        const outDegree = new Map<string, number>();
+        const inDegree = new Map<string, number>();
+        const nodeIdByName = new Map(uniqueNames.map((name, index) => [name, `path-node-${index}`]));
+
+        const pathEdges: TopologyEdge[] = connectors.map((connector, index) => {
+          const leftName = entities[index];
+          const rightName = entities[index + 1];
+          const sourceName = connector.direction === 'left' ? rightName : leftName;
+          const targetName = connector.direction === 'left' ? leftName : rightName;
+          outDegree.set(sourceName, (outDegree.get(sourceName) || 0) + 1);
+          inDegree.set(targetName, (inDegree.get(targetName) || 0) + 1);
+          return {
+            id: `path-edge-${index}`,
+            source: nodeIdByName.get(sourceName)!,
+            target: nodeIdByName.get(targetName)!,
+            category: getPathRelationCategory(connector.label),
+            relationType: getPathRelationType(connector.label),
+            label: connector.label,
+            holdingRatio: connector.label.match(/\d+(?:\.\d+)?%/)?.[0],
+            detailText: `${sourceName} 指向 ${targetName}，关系为 ${connector.label}。原始路径：${relationPath}`,
+            riskLevel
+          };
+        });
+
+        const topNames = uniqueNames.filter((name) => {
+          const isNaturalPerson = !isCompanyLikeName(name);
+          const out = outDegree.get(name) || 0;
+          const incoming = inDegree.get(name) || 0;
+          return isNaturalPerson || out > incoming || out >= 2;
+        });
+        if (topNames.length === 0) topNames.push(uniqueNames[0]);
+        const bottomNames = uniqueNames.filter((name) => !topNames.includes(name));
+        const calculatedWidth = Math.max(1100, uniqueNames.length * 280 + 260);
+        const spread = (names: string[]) => calculatedWidth / (names.length + 1);
+
+        const makeNode = (name: string, index: number, rowNames: string[], isTop: boolean): TopologyNode => {
+          const companyLike = isCompanyLikeName(name);
+          const branchLike = isBranchLikeName(name);
+          const matched = findCompany(name);
+          const role = companyLike
+            ? branchLike
+              ? '分支机构'
+              : getCompanyRole(name)
+            : '自然人';
+
+          return {
+            id: nodeIdByName.get(name)!,
+            name,
+            type: companyLike ? (branchLike ? 'spv' : 'bidding_company') : 'person',
+            legalPerson: companyLike ? (matched?.legalPerson || role) : '自然人',
+            registeredCapital: matched?.registeredCapital || (companyLike ? '未登记' : '自然人'),
+            shareRatio: role,
+            isHighRisk: role === '投标单位' || riskLevel === 'high',
+            x: Math.round(spread(rowNames) * (index + 1)),
+            y: isTop ? 125 : 430,
+            riskFlags: [role]
+          };
+        };
+
+        const pathNodes: TopologyNode[] = [
+          ...topNames.map((name, index) => makeNode(name, index, topNames, true)),
+          ...bottomNames.map((name, index) => makeNode(name, index, bottomNames, false))
+        ];
+
+        return { nodes: pathNodes, edges: pathEdges, canvasWidth: calculatedWidth };
+      }
+
+      const fallbackCompanies = targetCompanyName?.split('、').map((name) => name.trim()).filter(Boolean) || section.companies.slice(0, 2).map((item) => item.name);
+      const calculatedWidth = Math.max(980, fallbackCompanies.length * 300 + 260);
+      const pathNodes: TopologyNode[] = fallbackCompanies.map((companyName, index) => {
+        const matched = findCompany(companyName);
+        return {
+          id: `path-node-fallback-${index}`,
+          name: companyName,
+          type: 'bidding_company',
+          legalPerson: matched?.legalPerson || getCompanyRole(companyName),
+          registeredCapital: matched?.registeredCapital || '未登记',
+          shareRatio: getCompanyRole(companyName),
+          isHighRisk: true,
+          x: Math.round((calculatedWidth / (fallbackCompanies.length + 1)) * (index + 1)),
+          y: 300,
+          riskFlags: [getCompanyRole(companyName)]
+        };
+      });
+
+      return { nodes: pathNodes, edges: [], canvasWidth: calculatedWidth };
+    }
+
+    if (isContactEvidenceMode) {
+      const contactIssues = (section.equityIssueList || []).filter((item) => {
+        const isContactIssue = /电话|邮箱|地址/.test(item.issueType);
+        return isContactIssue && (!focusIssueId || item.id === focusIssueId);
+      });
+      const issuesToShow = contactIssues.length > 0
+        ? contactIssues
+        : (section.equityIssueList || []).filter((item) => /电话|邮箱|地址/.test(item.issueType));
+
+      const issue = issuesToShow[0];
+      const companies = issue?.companies?.length
+        ? issue.companies
+        : section.contactAssociations?.[0]?.involvedCompanies.map((item) => item.companyName) || section.companies.slice(0, 2).map((item) => item.name);
+      const relationPath = issue?.relationPath || section.contactAssociations?.[0]?.description || '';
+      const issueType = issue?.issueType || section.contactAssociations?.[0]?.type || '联系方式审查';
+      const riskLevel = issue?.riskLevel || 'low';
+      const phoneMatch = relationPath.match(/(?:疑似联系方式|相同电话)\s*([0-9\-]+)/);
+      const emailMatch = relationPath.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i);
+      const addressMatch = relationPath.match(/相同地址\s*(.*?)\s*<=>/);
+      const contactValue = phoneMatch?.[1] || emailMatch?.[1] || addressMatch?.[1] || section.contactAssociations?.[0]?.value || '共同联系方式';
+      const relationType: TopologyEdge['relationType'] = issueType.includes('邮箱')
+        ? 'contact_email'
+        : issueType.includes('地址')
+        ? 'contact_address'
+        : 'contact_phone';
+      const contactLabel = issueType.includes('邮箱')
+        ? '共享注册邮箱'
+        : issueType.includes('地址')
+        ? '共享注册地址'
+        : '共享注册电话';
+
+      const calculatedWidth = Math.max(980, companies.length * 260 + 360);
+      const centerX = calculatedWidth / 2;
+      const centerY = 235;
+      const spread = Math.min(280, Math.max(180, calculatedWidth / Math.max(companies.length + 1, 4)));
+      const startX = centerX - ((companies.length - 1) * spread) / 2;
+
+      const contactNode: TopologyNode = {
+        id: 'node-contact-evidence',
+        name: contactValue,
+        type: 'contact_evidence',
+        legalPerson: issueType,
+        registeredCapital: '工商登记/年报信息比对',
+        shareRatio: contactLabel,
+        isHighRisk: riskLevel !== 'low',
+        x: centerX,
+        y: centerY,
+        riskFlags: [contactLabel, `${companies.length} 家单位关联`]
+      };
+
+      const companyNodes: TopologyNode[] = companies.map((companyName, idx) => {
+        const matchedCompany = section.companies.find((company) => company.name === companyName);
+        const x = startX + idx * spread;
+        const y = idx % 2 === 0 ? 88 : 390;
+        return {
+          id: `node-contact-company-${idx}`,
+          name: companyName,
+          type: 'bidding_company',
+          legalPerson: matchedCompany?.legalPerson || '登记主体',
+          registeredCapital: matchedCompany?.registeredCapital || '未登记',
+          shareRatio: '命中联系方式审查',
+          isHighRisk: riskLevel !== 'low',
+          x,
+          y,
+          riskFlags: [issueType, contactLabel]
+        };
+      });
+
+      const contactEdges: TopologyEdge[] = companyNodes.map((node, idx) => ({
+        id: `edge-contact-${idx}`,
+        source: node.id,
+        target: contactNode.id,
+        category: 'contact',
+        relationType,
+        label: contactLabel,
+        detailText: relationPath || `${node.name} 与其他参评单位存在相同联系方式：${contactValue}。`,
+        riskLevel
+      }));
+
+      return { nodes: [contactNode, ...companyNodes], edges: contactEdges, canvasWidth: calculatedWidth };
+    }
+
     const isHigh = section.riskLevel === 'high';
     const isMedium = section.riskLevel === 'medium';
     const isLow = section.riskLevel === 'low';
+    const allIssuePaths = (section.equityIssueList || [])
+      .filter((issue) => !/电话|邮箱|地址/.test(issue.issueType))
+      .map((issue) => ({ ...issue, parsed: parseRelationPathSegments(issue.relationPath) }))
+      .filter((issue) => issue.parsed.entities.length >= 2 && issue.parsed.connectors.length === issue.parsed.entities.length - 1);
 
     // -------------------------------------------------------------
     // MODE A: SINGLE COMPANY UPWARD & DOWNWARD PENETRATION TOPOLOGY
     // -------------------------------------------------------------
     if (selectedCompanyName !== 'all') {
+      const selectedIssuePaths = allIssuePaths.filter((issue) =>
+        issue.parsed.entities.some((name) => name === selectedCompanyName || name.includes(selectedCompanyName) || selectedCompanyName.includes(name))
+      );
+
+      if (selectedIssuePaths.length > 0) {
+        const nodeNames: string[] = [];
+        const edgePairs = new Set<string>();
+        const outDegree = new Map<string, number>();
+        const inDegree = new Map<string, number>();
+
+        selectedIssuePaths.forEach((issue) => {
+          issue.parsed.entities.forEach((name) => {
+            if (!nodeNames.includes(name)) nodeNames.push(name);
+          });
+          issue.parsed.connectors.forEach((connector, index) => {
+            const leftName = issue.parsed.entities[index];
+            const rightName = issue.parsed.entities[index + 1];
+            const sourceName = connector.direction === 'left' ? rightName : leftName;
+            const targetName = connector.direction === 'left' ? leftName : rightName;
+            outDegree.set(sourceName, (outDegree.get(sourceName) || 0) + 1);
+            inDegree.set(targetName, (inDegree.get(targetName) || 0) + 1);
+          });
+        });
+
+        const layeredRows = getLayeredPathRows(nodeNames, selectedIssuePaths);
+        const maxRowCount = Math.max(...layeredRows.map((row) => row.length), 3);
+        const calculatedWidth = Math.max(1180, maxRowCount * 280 + 260);
+        const topY = 70;
+        const rowGapY = 150;
+
+        const getRole = (name: string) => {
+          if (!isCompanyLikeName(name)) return '自然人';
+          if (isBranchLikeName(name)) return '分支机构';
+          const inIssueCompanies = selectedIssuePaths.some((issue) => issue.companies.includes(name));
+          return inIssueCompanies ? '投标单位' : '关联单位';
+        };
+        const rowX = (rowNames: string[], index: number) => Math.round((calculatedWidth / (rowNames.length + 1)) * (index + 1));
+        const makeNode = (name: string, index: number, rowNames: string[], y: number): TopologyNode => {
+          const role = getRole(name);
+          const matched = section.companies.find((company) => company.name === name);
+          return {
+            id: `node-selected-real-${nodeNames.indexOf(name)}`,
+            name,
+            type: role === '自然人' ? 'person' : role === '分支机构' ? 'spv' : 'bidding_company',
+            legalPerson: matched?.legalPerson || role,
+            registeredCapital: matched?.registeredCapital || (role === '自然人' ? '自然人' : '未登记'),
+            shareRatio: role,
+            isHighRisk: role === '投标单位' || selectedIssuePaths.some((issue) => issue.riskLevel === 'high' && issue.parsed.entities.includes(name)),
+            x: rowX(rowNames, index),
+            y,
+            riskFlags: [role]
+          };
+        };
+
+        const pathNodes: TopologyNode[] = layeredRows.flatMap((rowNames, rowIndex) =>
+          rowNames.map((name, index) => makeNode(name, index, rowNames, topY + rowIndex * rowGapY))
+        );
+        const nodeIdByName = new Map(pathNodes.map((node) => [node.name, node.id]));
+        const pathEdges: TopologyEdge[] = [];
+
+        selectedIssuePaths.forEach((issue) => {
+          issue.parsed.connectors.forEach((connector, index) => {
+            const leftName = issue.parsed.entities[index];
+            const rightName = issue.parsed.entities[index + 1];
+            const sourceName = connector.direction === 'left' ? rightName : leftName;
+            const targetName = connector.direction === 'left' ? leftName : rightName;
+            const key = `${sourceName}|${connector.label}|${targetName}`;
+            if (edgePairs.has(key)) return;
+            edgePairs.add(key);
+            pathEdges.push({
+              id: `edge-selected-real-${pathEdges.length}`,
+              source: nodeIdByName.get(sourceName)!,
+              target: nodeIdByName.get(targetName)!,
+              category: getPathRelationCategory(connector.label),
+              relationType: getPathRelationType(connector.label),
+              label: connector.label,
+              holdingRatio: connector.label.match(/\d+(?:\.\d+)?%/)?.[0],
+              detailText: `${sourceName} 指向 ${targetName}，关系为 ${connector.label}。来源问题：${issue.issueType}。原始路径：${issue.relationPath}`,
+              riskLevel: issue.riskLevel
+            });
+          });
+        });
+
+        return { nodes: pathNodes, edges: pathEdges, canvasWidth: calculatedWidth };
+      }
+
       const comp = section.companies.find((c) => c.name === selectedCompanyName) || section.companies[0];
       if (comp) {
         const singleNodes: TopologyNode[] = [];
@@ -502,6 +907,90 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
     // Fallback if no companies have risk flags (prevent empty display)
     const displayCompanies = targetCompanies.length > 0 ? targetCompanies : section.companies;
 
+    const issuePaths = allIssuePaths;
+
+    if (issuePaths.length > 0) {
+      const nodeNames: string[] = [];
+      const edgePairs = new Set<string>();
+      const outDegree = new Map<string, number>();
+      const inDegree = new Map<string, number>();
+
+      issuePaths.forEach((issue) => {
+        issue.parsed.entities.forEach((name) => {
+          if (!nodeNames.includes(name)) nodeNames.push(name);
+        });
+        issue.parsed.connectors.forEach((connector, index) => {
+          const leftName = issue.parsed.entities[index];
+          const rightName = issue.parsed.entities[index + 1];
+          const sourceName = connector.direction === 'left' ? rightName : leftName;
+          const targetName = connector.direction === 'left' ? leftName : rightName;
+          outDegree.set(sourceName, (outDegree.get(sourceName) || 0) + 1);
+          inDegree.set(targetName, (inDegree.get(targetName) || 0) + 1);
+        });
+      });
+
+      const layeredRows = getLayeredPathRows(nodeNames, issuePaths);
+      const maxRowCount = Math.max(...layeredRows.map((row) => row.length), 3);
+      const calculatedWidth = Math.max(1180, maxRowCount * 280 + 260);
+      const topY = 70;
+      const rowGapY = 150;
+
+      const getRole = (name: string) => {
+        if (!isCompanyLikeName(name)) return '自然人';
+        if (isBranchLikeName(name)) return '分支机构';
+        const inIssueCompanies = issuePaths.some((issue) => issue.companies.includes(name));
+        return inIssueCompanies ? '投标单位' : '关联单位';
+      };
+      const rowX = (rowNames: string[], index: number) => Math.round((calculatedWidth / (rowNames.length + 1)) * (index + 1));
+      const makeNode = (name: string, index: number, rowNames: string[], y: number): TopologyNode => {
+        const role = getRole(name);
+        const matched = section.companies.find((company) => company.name === name);
+        return {
+          id: `node-real-${nodeNames.indexOf(name)}`,
+          name,
+          type: role === '自然人' ? 'person' : role === '分支机构' ? 'spv' : 'bidding_company',
+          legalPerson: matched?.legalPerson || role,
+          registeredCapital: matched?.registeredCapital || (role === '自然人' ? '自然人' : '未登记'),
+          shareRatio: role,
+          isHighRisk: role === '投标单位' || issuePaths.some((issue) => issue.riskLevel === 'high' && issue.parsed.entities.includes(name)),
+          x: rowX(rowNames, index),
+          y,
+          riskFlags: [role]
+        };
+      };
+
+      const pathNodes: TopologyNode[] = layeredRows.flatMap((rowNames, rowIndex) =>
+        rowNames.map((name, index) => makeNode(name, index, rowNames, topY + rowIndex * rowGapY))
+      );
+      const nodeIdByName = new Map(pathNodes.map((node) => [node.name, node.id]));
+      const pathEdges: TopologyEdge[] = [];
+
+      issuePaths.forEach((issue) => {
+        issue.parsed.connectors.forEach((connector, index) => {
+          const leftName = issue.parsed.entities[index];
+          const rightName = issue.parsed.entities[index + 1];
+          const sourceName = connector.direction === 'left' ? rightName : leftName;
+          const targetName = connector.direction === 'left' ? leftName : rightName;
+          const key = `${sourceName}|${connector.label}|${targetName}`;
+          if (edgePairs.has(key)) return;
+          edgePairs.add(key);
+          pathEdges.push({
+            id: `edge-real-${pathEdges.length}`,
+            source: nodeIdByName.get(sourceName)!,
+            target: nodeIdByName.get(targetName)!,
+            category: getPathRelationCategory(connector.label),
+            relationType: getPathRelationType(connector.label),
+            label: connector.label,
+            holdingRatio: connector.label.match(/\d+(?:\.\d+)?%/)?.[0],
+            detailText: `${sourceName} 指向 ${targetName}，关系为 ${connector.label}。来源问题：${issue.issueType}。原始路径：${issue.relationPath}`,
+            riskLevel: issue.riskLevel
+          });
+        });
+      });
+
+      return { nodes: pathNodes, edges: pathEdges, canvasWidth: calculatedWidth };
+    }
+
     // Bidding company count drives canvas width
     const compCount = Math.max(displayCompanies.length, 3);
     const startX = 200;
@@ -732,7 +1221,8 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
     }
 
     return { nodes: allNodes, edges: builtEdges, canvasWidth: calculatedWidth };
-  }, [section, onlyShowProblemCompanies]);
+  }, [section, onlyShowProblemCompanies, isContactEvidenceMode, isRelationPathMode, focusIssueId, relationPath, targetCompanyName]);
+  const canvasHeight = useMemo(() => Math.max(480, ...nodes.map((node) => node.y + 150)), [nodes]);
 
   // Filter logic
   const filteredEdges = useMemo(() => {
@@ -744,8 +1234,8 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
     if (activeFilter === 'cat-personnel' || activeFilter === 'personnel_group') {
       return edges.filter((e) => e.category === 'personnel' || ['same_legal_person', 'cross_executive', 'close_relatives', 'nominee_shareholder'].includes(e.relationType));
     }
-    if (activeFilter === 'cat-other') {
-      return edges.filter((e) => e.category === 'other' || ['contact', 'history', 'accompany', 'keyperson'].includes(e.relationType));
+    if (activeFilter === 'cat-contact') {
+      return edges.filter((e) => e.category === 'contact' || ['contact_phone', 'contact_email', 'contact_address'].includes(e.relationType));
     }
 
     const subTypeMap: Record<string, string[]> = {
@@ -758,10 +1248,9 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
       'cat-personnel-exec': ['cross_executive'],
       'cat-personnel-relative': ['close_relatives'],
       'cat-personnel-nominee': ['nominee_shareholder'],
-      'cat-other-contact': ['contact'],
-      'cat-other-history': ['history'],
-      'cat-other-accompany': ['accompany'],
-      'cat-other-keyperson': ['keyperson'],
+      'cat-contact-phone': ['contact_phone'],
+      'cat-contact-email': ['contact_email'],
+      'cat-contact-address': ['contact_address'],
       'direct': ['direct'],
       'indirect': ['indirect'],
       'cross': ['cross'],
@@ -770,6 +1259,9 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
       'cross_executive': ['cross_executive'],
       'close_relatives': ['close_relatives'],
       'nominee_shareholder': ['nominee_shareholder'],
+      'contact_phone': ['contact_phone'],
+      'contact_email': ['contact_email'],
+      'contact_address': ['contact_address'],
     };
 
     const allowedTypes = subTypeMap[activeFilter];
@@ -811,6 +1303,36 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
 
   // Style mapper for relation types
   const getRelationStyle = (type: TopologyEdge['relationType'], riskLevel?: string) => {
+    if (type === 'contact_phone') {
+      return {
+        stroke: '#2563eb',
+        labelBg: 'bg-blue-600 text-white',
+        badgeText: '注册电话一致',
+        border: 'border-blue-500',
+        textColor: 'text-blue-600',
+        dashArray: '5,4'
+      };
+    }
+    if (type === 'contact_email') {
+      return {
+        stroke: '#7c3aed',
+        labelBg: 'bg-violet-600 text-white',
+        badgeText: '注册邮箱一致',
+        border: 'border-violet-500',
+        textColor: 'text-violet-600',
+        dashArray: '5,4'
+      };
+    }
+    if (type === 'contact_address') {
+      return {
+        stroke: '#ea580c',
+        labelBg: 'bg-orange-600 text-white',
+        badgeText: '注册地址一致',
+        border: 'border-orange-500',
+        textColor: 'text-orange-600',
+        dashArray: '5,4'
+      };
+    }
     if (riskLevel === 'low') {
       return {
         stroke: '#10b981', // Emerald
@@ -909,17 +1431,28 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-blue-100 border border-blue-200 text-blue-600 shadow-2xs">
-              <Network className="w-5 h-5" />
+              {isContactEvidenceMode ? <PhoneCall className="w-5 h-5" /> : <Network className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                交互式股权与人员穿透拓扑图
+                {isContactEvidenceMode ? '联系方式证据图谱' : isRelationPathMode ? '关联路径证据图谱' : '交互式股权与人员穿透拓扑图'}
               </h3>
+              {isContactEvidenceMode && (
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  围绕共同电话、邮箱或地址展示涉事单位与证据路径
+                </p>
+              )}
+              {isRelationPathMode && (
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  按风险问题清单中的关联路径逐段展示证据链
+                </p>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             {/* Target Company Selector */}
+            {!isContactEvidenceMode && !isRelationPathMode && (
             <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-blue-200 shadow-2xs">
               <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
                 穿透目标单位:
@@ -937,7 +1470,9 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
                 ))}
               </select>
             </div>
+            )}
 
+            {!isContactEvidenceMode && !isRelationPathMode && (
             <button
               onClick={() => setOnlyShowProblemCompanies(!onlyShowProblemCompanies)}
               className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs ${
@@ -950,6 +1485,7 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
               <ShieldAlert className={`w-3.5 h-3.5 ${onlyShowProblemCompanies ? 'text-amber-600' : 'text-slate-500'}`} />
               <span>{onlyShowProblemCompanies ? '只展示涉险/问题单位' : `显示全部单位 (${section.companies.length})`}</span>
             </button>
+            )}
 
             <button
               onClick={() => {
@@ -1207,17 +1743,22 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
       {/* 3. Light Blue Canvas with Mouse Wheel Zooming */}
       <div
         ref={canvasRef}
-        className="relative bg-gradient-to-br from-[#ebf4ff] via-[#f0f7ff] to-[#e4f0fe] border-y border-blue-200/80 min-h-[520px] overflow-x-auto overflow-y-hidden p-6 flex justify-center items-center select-none"
+        className={`relative border-y border-blue-200/80 min-h-[520px] overflow-auto p-6 flex justify-center items-center select-none ${
+          isRelationPathMode
+            ? 'bg-gradient-to-br from-white via-slate-50 to-blue-50/40'
+            : 'bg-gradient-to-br from-[#ebf4ff] via-[#f0f7ff] to-[#e4f0fe]'
+        }`}
         title="可在拓扑图区域内滑动鼠标滚轮进行放大或缩小"
       >
         {/* Background Grid Pattern - Light Blue Blueprint Dots */}
-        <div className="absolute inset-0 bg-[radial-gradient(#93c5fd_1.5px,transparent_1.5px)] [background-size:24px_24px] opacity-80"></div>
+        <div className={`absolute inset-0 bg-[radial-gradient(#93c5fd_1.5px,transparent_1.5px)] [background-size:24px_24px] ${isRelationPathMode ? 'opacity-20' : 'opacity-80'}`}></div>
 
         {/* Scalable Container with explicit calculated minimum width */}
         <div
-          className="relative h-[480px] transition-transform duration-200 ease-out"
+          className="relative transition-transform duration-200 ease-out"
           style={{
             width: `${canvasWidth}px`,
+            height: `${canvasHeight}px`,
             transform: `scale(${zoomLevel})`,
             transformOrigin: 'center top'
           }}
@@ -1249,6 +1790,12 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
               <marker id="arrow-nominee" viewBox="0 0 10 10" refX="24" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#14b8a6" />
               </marker>
+              <marker id="arrow-contact" viewBox="0 0 10 10" refX="24" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" />
+              </marker>
+              <marker id="arrow-path" viewBox="0 0 10 10" refX="24" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" />
+              </marker>
             </defs>
 
             {/* Render Connecting Lines */}
@@ -1258,6 +1805,7 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
               if (!sourceNode || !targetNode) return null;
 
               const style = getRelationStyle(edge.relationType, edge.riskLevel);
+              const isPathEdge = isRelationPathMode && edge.id.startsWith('path-edge-');
               const isEdgeActive =
                 selectedEdgeId === edge.id ||
                 hoveredEdgeId === edge.id ||
@@ -1266,18 +1814,50 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
 
               // Calculate curve and midpoints
               const isCurved =
+                !isPathEdge && (
                 edge.relationType === 'cross' ||
                 edge.relationType === 'cross_executive' ||
                 edge.relationType === 'close_relatives' ||
-                edge.relationType === 'nominee_shareholder';
+                edge.relationType === 'nominee_shareholder'
+                );
 
-              const midX = (sourceNode.x + targetNode.x) / 2;
-              const curveOffset = isCurved ? (sourceNode.y === targetNode.y ? -55 : 45) : 0;
-              const midY = (sourceNode.y + targetNode.y) / 2 + curveOffset;
+              const getPathBoundaryPoint = (
+                node: TopologyNode,
+                otherNode: TopologyNode,
+                mode: 'source' | 'target'
+              ) => {
+                if (!isPathEdge) return { x: node.x, y: node.y };
+                const dx = otherNode.x - node.x;
+                const dy = otherNode.y - node.y;
+                const halfWidth = 142;
+                const halfHeight = 82;
+                const scale = Math.min(
+                  Math.abs(dx) > 0 ? halfWidth / Math.abs(dx) : Number.POSITIVE_INFINITY,
+                  Math.abs(dy) > 0 ? halfHeight / Math.abs(dy) : Number.POSITIVE_INFINITY
+                );
+                const padding = mode === 'target' ? 22 : 12;
+                const safeScale = Math.max(scale - padding / Math.max(Math.hypot(dx, dy), 1), 0);
+                return {
+                  x: node.x + dx * safeScale,
+                  y: node.y + dy * safeScale,
+                };
+              };
+
+              const sourcePoint = getPathBoundaryPoint(sourceNode, targetNode, 'source');
+              const targetPoint = getPathBoundaryPoint(targetNode, sourceNode, 'target');
+              const midX = (sourcePoint.x + targetPoint.x) / 2;
+              const curveOffset = isPathEdge
+                ? 0
+                : isCurved
+                ? (sourcePoint.y === targetPoint.y ? -55 : 45)
+                : 0;
+              const edgeIndex = Number(edge.id.match(/(\d+)$/)?.[1] || 0);
+              const labelOffsetY = isPathEdge ? (edgeIndex % 2 === 0 ? -16 : 16) : 0;
+              const midY = (sourcePoint.y + targetPoint.y) / 2 + curveOffset + labelOffsetY;
 
               const pathD = isCurved
-                ? `M ${sourceNode.x} ${sourceNode.y} Q ${midX} ${midY} ${targetNode.x} ${targetNode.y}`
-                : `M ${sourceNode.x} ${sourceNode.y} L ${targetNode.x} ${targetNode.y}`;
+                ? `M ${sourcePoint.x} ${sourcePoint.y} Q ${midX} ${midY} ${targetPoint.x} ${targetPoint.y}`
+                : `M ${sourcePoint.x} ${sourcePoint.y} L ${targetPoint.x} ${targetPoint.y}`;
 
               // Get marker id mapped by relation type
               let markerType = 'arrow-direct';
@@ -1288,6 +1868,8 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
               else if (edge.relationType === 'cross_executive') markerType = 'arrow-cross-exec';
               else if (edge.relationType === 'close_relatives') markerType = 'arrow-relatives';
               else if (edge.relationType === 'nominee_shareholder') markerType = 'arrow-nominee';
+              else if (edge.category === 'contact') markerType = 'arrow-contact';
+              if (isPathEdge) markerType = 'arrow-path';
 
               return (
                 <g key={edge.id} className="pointer-events-auto cursor-pointer">
@@ -1310,19 +1892,20 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
                     <path
                       d={pathD}
                       stroke={style.stroke}
-                      strokeWidth="9"
-                      strokeOpacity="0.35"
+                      strokeWidth="7"
+                      strokeOpacity="0.22"
                       fill="none"
-                      className="animate-pulse"
                     />
                   )}
 
                   {/* Main Line */}
                   <path
                     d={pathD}
-                    stroke={style.stroke}
-                    strokeWidth={isEdgeActive ? '3.5' : '2.5'}
+                    stroke={isPathEdge ? '#2563eb' : style.stroke}
+                    strokeWidth={isPathEdge ? '2.25' : '2.5'}
                     strokeDasharray={style.dashArray}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     fill="none"
                     markerEnd={`url(#${markerType})`}
                     className="transition-all duration-200"
@@ -1330,10 +1913,10 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
 
                   {/* Line Floating Label */}
                   <foreignObject
-                    x={midX - 70}
-                    y={midY - 14}
-                    width="140"
-                    height="28"
+                    x={midX - (isPathEdge ? 140 : 70)}
+                    y={midY - 16}
+                    width={isPathEdge ? '280' : '140'}
+                    height="34"
                     className="overflow-visible pointer-events-auto"
                   >
                     <div
@@ -1344,9 +1927,11 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
                       }}
                       onMouseEnter={() => setHoveredEdgeId(edge.id)}
                       onMouseLeave={() => setHoveredEdgeId(null)}
-                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full text-center shadow-md cursor-pointer transition-transform hover:scale-110 whitespace-nowrap border border-white/20 truncate ${
-                        style.labelBg
-                      } ${isEdgeActive ? 'ring-2 ring-white scale-105' : 'opacity-90'}`}
+                      className={`text-[10px] font-bold px-3 py-1 rounded-full text-center cursor-pointer whitespace-nowrap ${
+                        isPathEdge
+                          ? 'bg-white text-blue-700 border border-blue-200 shadow-sm'
+                          : `${style.labelBg} border border-white/20 shadow-md`
+                      } ${isEdgeActive ? 'ring-2 ring-white opacity-100' : 'opacity-95'}`}
                       title={edge.label}
                     >
                       {edge.label}
@@ -1366,6 +1951,7 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
             const isParent = node.type === 'ultimate';
             const isSPV = node.type === 'spv';
             const isPerson = node.type === 'person';
+            const isContactEvidence = node.type === 'contact_evidence';
 
             return (
               <div
@@ -1392,7 +1978,70 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
                 }`}
               >
                 {/* Node Box Designs - Light Tone Palette */}
-                {isParent ? (
+                {isRelationPathMode ? (
+                  <div
+                    className={`relative rounded-2xl border-2 w-64 shadow-md text-center bg-white p-3.5 transition-colors ${
+                      node.type === 'person'
+                        ? 'border-purple-400 shadow-purple-100'
+                        : node.type === 'spv'
+                        ? 'border-amber-400 shadow-amber-100'
+                        : node.isHighRisk
+                        ? 'border-red-400 shadow-red-100'
+                        : 'border-blue-300 shadow-blue-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${
+                          node.type === 'person'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : node.type === 'spv'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : node.shareRatio === '投标单位'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-slate-50 text-slate-600 border-slate-200'
+                        }`}
+                      >
+                        {node.type === 'person' ? (
+                          <UserRound className="w-3 h-3" />
+                        ) : (
+                          <Landmark className="w-3 h-3" />
+                        )}
+                        {node.shareRatio}
+                      </span>
+                      {node.isHighRisk && node.type !== 'person' && (
+                        <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                          风险关联
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm font-extrabold text-slate-900 leading-snug line-clamp-2 min-h-[38px] flex items-center justify-center" title={node.name}>
+                      {node.name}
+                    </div>
+                  </div>
+                ) : isContactEvidence ? (
+                  <div className="bg-gradient-to-b from-white via-blue-50/95 to-sky-100/90 text-slate-900 p-4 rounded-2xl border-2 border-blue-500 shadow-xl w-64 text-center">
+                    <div className="text-[10px] font-bold text-blue-800 bg-blue-100 border border-blue-300 px-2.5 py-0.5 rounded-full inline-flex items-center justify-center gap-1.5 mb-2 shadow-2xs">
+                      {node.shareRatio?.includes('邮箱') ? (
+                        <Mail className="w-3 h-3 text-violet-600" />
+                      ) : node.shareRatio?.includes('地址') ? (
+                        <MapPin className="w-3 h-3 text-orange-600" />
+                      ) : (
+                        <PhoneCall className="w-3 h-3 text-blue-600" />
+                      )}
+                      共同联系方式证据
+                    </div>
+                    <div className="text-sm font-extrabold text-blue-950 break-all" title={node.name}>
+                      {node.name}
+                    </div>
+                    <div className="text-[10px] text-blue-700 mt-1 font-semibold truncate">
+                      {node.legalPerson}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-2 border-t border-blue-200/80 pt-2">
+                      {node.registeredCapital}
+                    </div>
+                  </div>
+                ) : isParent ? (
                   <div className="bg-gradient-to-b from-white via-blue-50/90 to-blue-100/90 text-slate-900 p-3.5 rounded-2xl border-2 border-blue-500 shadow-lg w-60 text-center">
                     <div className="text-[10px] uppercase font-bold tracking-wider text-blue-800 bg-blue-100/90 border border-blue-300 px-2.5 py-0.5 rounded-full inline-flex items-center justify-center gap-1 mb-1 shadow-2xs">
                       <Sparkles className="w-3 h-3 text-amber-500 fill-amber-500" />
@@ -1475,7 +2124,7 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
                   {getRelationStyle(activeEdgeDetail.relationType, activeEdgeDetail.riskLevel).badgeText}
                 </span>
                 <h4 className="text-sm font-bold text-slate-900">
-                  {activeEdgeDetail.label} 穿透详情
+                  {activeEdgeDetail.label} {activeEdgeDetail.category === 'contact' ? '证据详情' : '穿透详情'}
                 </h4>
               </div>
               <span className="text-xs text-slate-400">点击关系线条切换细化分析</span>
@@ -1486,8 +2135,8 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
             </p>
 
             <div className="flex items-center gap-4 text-xs text-slate-500 pt-1">
-              <span>关系类别: <strong className="text-slate-800 font-bold">{activeEdgeDetail.category === 'equity' ? '股权控制关系' : '人员/代持关联'}</strong></span>
-              <span>风险等级: <strong className="text-red-600 font-bold">{activeEdgeDetail.riskLevel === 'high' ? '高风险 (涉及围标串标)' : '中风险'}</strong></span>
+              <span>关系类别: <strong className="text-slate-800 font-bold">{activeEdgeDetail.category === 'equity' ? '股权控制关系' : activeEdgeDetail.category === 'contact' ? '联系方式证据关联' : '人员/代持关联'}</strong></span>
+              <span>风险等级: <strong className={`font-bold ${activeEdgeDetail.riskLevel === 'high' ? 'text-red-600' : activeEdgeDetail.riskLevel === 'medium' ? 'text-amber-600' : 'text-blue-600'}`}>{activeEdgeDetail.riskLevel === 'high' ? '高风险' : activeEdgeDetail.riskLevel === 'medium' ? '中风险' : '低风险'}</strong></span>
               {activeEdgeDetail.holdingRatio && (
                 <span>表决/代持比例: <strong className="text-slate-800 font-bold">{activeEdgeDetail.holdingRatio}</strong></span>
               )}
@@ -1506,6 +2155,8 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
                     ? '持股平台'
                     : activeNodeDetail.type === 'person'
                     ? '核心自然人'
+                    : activeNodeDetail.type === 'contact_evidence'
+                    ? '联系方式证据'
                     : '投标主体'}
                 </span>
               </div>
@@ -1531,8 +2182,15 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
               <div className="flex flex-wrap gap-1.5 pt-1">
                 <span className="text-xs font-bold text-slate-500 mr-1">识别风险特征:</span>
                 {activeNodeDetail.riskFlags.map((flag, idx) => (
-                  <span key={idx} className="px-2 py-0.5 rounded bg-red-50 text-red-600 border border-red-200 text-xs font-medium">
-                    ⚠️ {flag}
+                  <span
+                    key={idx}
+                    className={`px-2 py-0.5 rounded border text-xs font-medium ${
+                      activeNodeDetail.type === 'contact_evidence'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : 'bg-red-50 text-red-600 border-red-200'
+                    }`}
+                  >
+                    {flag}
                   </span>
                 ))}
               </div>
@@ -1549,4 +2207,3 @@ export const InteractiveEquityTopology: React.FC<InteractiveEquityTopologyProps>
     </div>
   );
 };
-

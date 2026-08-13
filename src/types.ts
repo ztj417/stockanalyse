@@ -18,7 +18,7 @@ export interface BiddingCompany {
 export interface EquityRelation {
   sourceCompany: string;
   targetCompany: string;
-  relationType: '实际控制人相同' | '高管交叉重叠' | '股东交叉持股' | '同IP/MAC地址' | '历史资金关联';
+  relationType: string;
   description: string;
   riskDegree: '高' | '中' | '低';
 }
@@ -53,7 +53,7 @@ export interface EquityConclusion {
 // 1. 联系方式关联维度（电话、邮箱、地址）
 export interface ContactAssociationItem {
   id: string;
-  type: '电话重合' | '邮箱重合' | '注册/办公地址重合' | '联系人重合';
+  type: string;
   value: string;
   riskDegree: '高' | '中' | '低';
   involvedCompanies: {

@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   Cpu,
   LayoutDashboard,
-  ArrowRight,
   Eye,
   Layers,
   Users,
@@ -28,7 +27,6 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  ChevronRight,
   Clock,
   Scale,
   RotateCcw,
@@ -108,6 +106,78 @@ const renderRichConclusionText = (text: string) => {
       })}
     </>
   );
+};
+
+const compactPathText = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const joinIssueCompanies = (companies: string[]) => {
+  const uniqueCompanies = Array.from(new Set(companies.filter(Boolean)));
+  return uniqueCompanies.length > 0 ? uniqueCompanies.join('、') : '相关投标单位';
+};
+
+const extractRelationPerson = (path: string) => {
+  const relationPattern = /(?:历史法人|法人|历史任职负责人|任职负责人|历史任职董事|任职董事|历史任职监事|任职监事|历史任职|任职|历史投资|投资|历史持股|持股\d*%?)-([^<>\-]+?)-(?=持股|历史持股|投资|历史投资|历史任职|任职|法人|历史法人|分支机构|<=>|$)/;
+  const match = path.match(relationPattern);
+  return match?.[1]?.trim();
+};
+
+const extractSharedValue = (path: string, marker: string) => {
+  const match = path.match(new RegExp(`${marker}\\s*([^<=>]+)`));
+  return match?.[1]?.trim();
+};
+
+const buildEvidenceSummary = (item: { issueType: string; companies: string[]; relationPath: string; evidenceSummary: string }) => {
+  const companies = joinIssueCompanies(item.companies);
+  const issueType = item.issueType || '';
+  const path = compactPathText(item.relationPath || '');
+
+  if (issueType.includes('电话')) {
+    const phone = extractSharedValue(path, '疑似联系方式') || extractSharedValue(path, '相同电话');
+    return phone
+      ? `${companies}存在相同注册电话/联系方式：${phone}`
+      : `${companies}存在注册电话重合风险。`;
+  }
+
+  if (issueType.includes('地址')) {
+    const address = extractSharedValue(path, '相同地址');
+    return address
+      ? `${companies}存在相同注册地址：${address}`
+      : `${companies}存在注册地址重合风险。`;
+  }
+
+  if (issueType.includes('邮箱')) {
+    const email = extractSharedValue(path, '相同邮箱') || extractSharedValue(path, '疑似邮箱');
+    return email
+      ? `${companies}存在相同注册邮箱：${email}`
+      : `${companies}存在注册邮箱重合风险。`;
+  }
+
+  if (issueType.includes('控股') || issueType.includes('股权')) {
+    const person = extractRelationPerson(path);
+    if (person && /持股|股东/.test(path)) {
+      return `${companies}存在共同股东${person}`;
+    }
+    if (person) {
+      return `${companies}存在共同关联人员${person}`;
+    }
+    return `${companies}存在股权或控制关系关联风险。`;
+  }
+
+  return item.evidenceSummary;
+};
+
+const isContactIssueItem = (item: { issueType: string; relationPath: string }) => {
+  const text = `${item.issueType || ''} ${item.relationPath || ''}`;
+  return [
+    '注册电话',
+    '注册地址',
+    '注册邮箱',
+    '联系方式',
+    '相同电话',
+    '相同地址',
+    '相同邮箱',
+    '疑似联系方式'
+  ].some((keyword) => text.includes(keyword));
 };
 
 const TypingEffectText: React.FC<{
@@ -532,6 +602,98 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
       evidenceSummary: '存在循环持股结构与相同保证金转账资金池'
     }
   ]);
+  const issueRiskStats = issueList.reduce(
+    (acc, item) => {
+      if (item.riskLevel === 'high') acc.high += 1;
+      else if (item.riskLevel === 'medium') acc.medium += 1;
+      else acc.low += 1;
+      return acc;
+    },
+    { high: 0, medium: 0, low: 0 }
+  );
+
+  const riskSortWeight: Record<string, number> = {
+    high: 0,
+    medium: 1,
+    low: 2,
+  };
+
+  const sortedIssueList = [...issueList].sort(
+    (a, b) => (riskSortWeight[a.riskLevel] ?? 99) - (riskSortWeight[b.riskLevel] ?? 99)
+  );
+
+  const getIssuesByRisk = (level: 'high' | 'medium' | 'low') =>
+    issueList.filter((item) => item.riskLevel === level);
+
+  const summarizeIssues = (items: typeof issueList) => {
+    const ruleNames = Array.from(new Set(items.map((item) => item.issueType).filter(Boolean)));
+    const sample = items[0];
+    const evidenceText = sample ? buildEvidenceSummary(sample) : '';
+    return {
+      ruleText: ruleNames.length ? ruleNames.join('\u3001') : '\u672a\u547d\u4e2d\u5206\u7c7b',
+      evidenceText,
+    };
+  };
+
+  const getUnhitCategoryText = () => {
+    const hitText = issueList.map((item) => item.issueType).join('\u3001');
+    if (!hitText.includes('\u63a7\u80a1')) return '\u5f53\u524d\u6807\u6bb5\u4e0d\u5b58\u5728\u63a7\u80a1\u5173\u7cfb\u95ee\u9898\uff0c\u672a\u53d1\u73b0\u76f4\u63a5\u63a7\u80a1\u3001\u95f4\u63a5\u63a7\u80a1\u6216\u5171\u540c\u80a1\u4e1c\u5bfc\u81f4\u7684\u9ad8\u98ce\u9669\u5173\u8054\u3002';
+    if (!hitText.includes('\u7535\u8bdd') && !hitText.includes('\u5730\u5740') && !hitText.includes('\u90ae\u7bb1')) return '\u5f53\u524d\u6807\u6bb5\u672a\u53d1\u73b0\u6ce8\u518c\u7535\u8bdd\u3001\u6ce8\u518c\u5730\u5740\u6216\u6ce8\u518c\u90ae\u7bb1\u7b49\u8054\u7cfb\u65b9\u5f0f\u91cd\u5408\u95ee\u9898\u3002';
+    if (!hitText.includes('\u4eba\u5458') && !hitText.includes('\u4efb\u804c')) return '\u5f53\u524d\u6807\u6bb5\u672a\u53d1\u73b0\u4e3b\u8981\u4eba\u5458\u6216\u5386\u53f2\u4efb\u804c\u4ea4\u53c9\u95ee\u9898\u3002';
+    return '\u9664\u98ce\u9669\u95ee\u9898\u6e05\u5355\u5df2\u5217\u660e\u4e8b\u9879\u5916\uff0c\u6682\u672a\u53d1\u73b0\u5176\u5b83\u5206\u7c7b\u7684\u65b0\u589e\u5f02\u5e38\u3002';
+  };
+
+  const primaryLevel = issueRiskStats.high > 0 ? 'high' : issueRiskStats.medium > 0 ? 'medium' : issueRiskStats.low > 0 ? 'low' : 'none';
+  const primaryIssues = primaryLevel === 'none' ? [] : getIssuesByRisk(primaryLevel);
+  const secondaryIssues = primaryLevel === 'high' && issueRiskStats.medium > 0 ? getIssuesByRisk('medium') : [];
+  const primarySummary = summarizeIssues(primaryIssues);
+  const secondarySummary = summarizeIssues(secondaryIssues);
+
+  const judgementSteps = [
+    {
+      label: '\u7814\u5224 1',
+      badgeClass:
+        primaryLevel === 'high'
+          ? 'bg-red-100 text-red-700'
+          : primaryLevel === 'medium'
+          ? 'bg-amber-100 text-amber-800'
+          : 'bg-emerald-100 text-emerald-800',
+      title:
+        primaryLevel === 'high'
+          ? '\u9ad8\u98ce\u9669\u95ee\u9898\u6e05\u5355\u60c5\u51b5'
+          : primaryLevel === 'medium'
+          ? '\u4e2d\u98ce\u9669\u95ee\u9898\u6e05\u5355\u60c5\u51b5'
+          : primaryLevel === 'low'
+          ? '\u4f4e\u98ce\u9669\u95ee\u9898\u6e05\u5355\u60c5\u51b5'
+          : '\u98ce\u9669\u95ee\u9898\u6e05\u5355\u60c5\u51b5',
+      content:
+        issueList.length === 0
+          ? `\u5f53\u524d\u6807\u6bb5\u5171 ${section.companyCount || section.companies?.length || 0} \u5bb6\u6295\u6807\u5355\u4f4d\uff0c\u98ce\u9669\u95ee\u9898\u6e05\u5355\u672a\u53d1\u73b0\u5f02\u5e38\u8bb0\u5f55\u3002`
+          : `\u5f53\u524d\u6807\u6bb5\u98ce\u9669\u95ee\u9898\u6e05\u5355\u5171 ${issueList.length} \u4e2a\u95ee\u9898\uff0c\u5176\u4e2d\u9ad8\u98ce\u9669 ${issueRiskStats.high} \u4e2a\u3001\u4e2d\u98ce\u9669 ${issueRiskStats.medium} \u4e2a\u3001\u4f4e\u98ce\u9669 ${issueRiskStats.low} \u4e2a\u3002\u91cd\u70b9\u547d\u4e2d ${primarySummary.ruleText}\uff0c\u4ee3\u8868\u6027\u95ee\u9898\u4e3a\uff1a${primarySummary.evidenceText}\u3002`,
+    },
+    {
+      label: '\u7814\u5224 2',
+      badgeClass: secondaryIssues.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800',
+      title: secondaryIssues.length > 0 ? '\u4e2d\u98ce\u9669\u95ee\u9898\u8865\u5145\u8bf4\u660e' : '\u672a\u547d\u4e2d\u5206\u7c7b\u8bf4\u660e',
+      content:
+        secondaryIssues.length > 0
+          ? `\u9664\u9ad8\u98ce\u9669\u95ee\u9898\u5916\uff0c\u5f53\u524d\u6807\u6bb5\u8fd8\u5b58\u5728 ${secondaryIssues.length} \u4e2a\u4e2d\u98ce\u9669\u95ee\u9898\uff0c\u4e3b\u8981\u6d89\u53ca ${secondarySummary.ruleText}\u3002\u4ee3\u8868\u6027\u95ee\u9898\u4e3a\uff1a${secondarySummary.evidenceText}\u3002`
+          : getUnhitCategoryText(),
+    },
+    {
+      label: '\u7814\u5224 3',
+      badgeClass: 'bg-blue-100 text-blue-800',
+      title: '\u5904\u7f6e\u610f\u89c1',
+      content:
+        issueRiskStats.high > 0
+          ? '\u5efa\u8bae\u5c06\u9ad8\u98ce\u9669\u95ee\u9898\u6d89\u53ca\u5355\u4f4d\u7eb3\u5165\u91cd\u70b9\u590d\u6838\u8303\u56f4\uff0c\u4f18\u5148\u6838\u9a8c\u5bf9\u5e94\u7684\u80a1\u6743\u3001\u63a7\u5236\u6216\u6295\u8d44\u5173\u7cfb\uff0c\u5e76\u540c\u6b65\u590d\u6838\u4e2d\u4f4e\u98ce\u9669\u7ebf\u7d22\u771f\u5b9e\u6027\uff1b\u5fc5\u8981\u65f6\u63d0\u4ea4\u8bc4\u6807\u59d4\u5458\u4f1a\u8fdb\u4e00\u6b65\u5904\u7f6e\u3002'
+          : issueRiskStats.medium > 0
+          ? '\u5efa\u8bae\u5bf9\u4e2d\u98ce\u9669\u95ee\u9898\u6d89\u53ca\u5355\u4f4d\u5f00\u5c55\u8865\u5145\u6838\u9a8c\uff0c\u91cd\u70b9\u6838\u5bf9\u5de5\u5546\u767b\u8bb0\u3001\u5386\u53f2\u4efb\u804c\u3001\u8054\u7cfb\u65b9\u5f0f\u53ca\u6295\u6807\u6587\u4ef6\u4e00\u81f4\u6027\uff0c\u6838\u9a8c\u65e0\u65b0\u589e\u5f02\u5e38\u540e\u53ef\u7ee7\u7eed\u63a8\u8fdb\u8bc4\u5ba1\u3002'
+          : issueRiskStats.low > 0
+          ? '\u5f53\u524d\u4ec5\u53d1\u73b0\u4f4e\u98ce\u9669\u7ebf\u7d22\uff0c\u5efa\u8bae\u7559\u75d5\u8ddf\u8e2a\u76f8\u5173\u5355\u4f4d\u8054\u7cfb\u65b9\u5f0f\u6216\u5206\u652f\u673a\u6784\u4fe1\u606f\uff0c\u672a\u53d1\u73b0\u65b0\u589e\u95ee\u9898\u65f6\u53ef\u6309\u6b63\u5e38\u6d41\u7a0b\u63a8\u8fdb\u3002'
+          : '\u5f53\u524d\u672a\u53d1\u73b0\u98ce\u9669\u95ee\u9898\uff0c\u5efa\u8bae\u6309\u6b63\u5e38\u6d41\u7a0b\u63a8\u8fdb\u540e\u7eed\u8bc4\u5ba1\uff0c\u5e76\u4fdd\u7559\u672c\u6b21\u7cfb\u7edf\u6838\u9a8c\u8bb0\u5f55\u3002',
+    },
+  ];
 
   const matrixDataGroups = section.riskLevel === 'low' ? [] : [
     {
@@ -1020,10 +1182,10 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                             });
                           }
                         }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors cursor-pointer border border-blue-200/80"
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
+                        title="查看详情"
                       >
-                        <span>查看详情</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
+                        <Search className="w-4.5 h-4.5" />
                       </button>
                     </td>
                   </tr>
@@ -1106,10 +1268,10 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                                 });
                               }
                             }}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-blue-600 hover:text-blue-800 hover:bg-blue-50 text-xs font-bold transition-colors cursor-pointer"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
+                            title="查看详情"
                           >
-                            <span>查看详情</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
+                            <Search className="w-4.5 h-4.5" />
                           </button>
                         </td>
                       </tr>
@@ -1128,9 +1290,9 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-3 md:p-4 animate-fade-in">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-3 md:p-4 animate-fade-in">
       <div
-        className="bg-white rounded-2xl max-w-[1800px] w-full max-h-[96vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden"
+        className="bg-white rounded-2xl max-w-[1800px] w-full h-[calc(100vh-1rem)] sm:h-[calc(100vh-1.5rem)] md:h-[calc(100vh-2rem)] flex flex-col shadow-2xl border border-slate-200 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Top Header (浅色高颜值顶栏) */}
@@ -1151,21 +1313,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                   {section.code}
                 </span>
 
-                {section.riskLevel === 'high' && (
-                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-red-50 text-red-600 border border-red-200">
-                    高风险等级
-                  </span>
-                )}
-                {section.riskLevel === 'medium' && (
-                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                    中风险等级
-                  </span>
-                )}
-                {section.riskLevel === 'low' && (
-                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    低风险等级
-                  </span>
-                )}
+                
               </div>
 
               <div className="flex items-center gap-3">
@@ -1173,10 +1321,17 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                   {section.name}
                 </h2>
 
-                <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-100 text-xs font-medium text-slate-700 border border-slate-200 shrink-0">
-                  <span>标段风险指数</span>
-                  <span className="font-bold text-red-600 text-sm">{section.riskScore}</span>
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                <div className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-medium border shrink-0 ${
+                  section.riskLevel === 'high'
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : section.riskLevel === 'medium'
+                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                }`}>
+                  <span>{'\u6807\u6bb5\u98ce\u9669\u60c5\u51b5\uff1a'}</span>
+                  <span className="font-bold">
+                    {section.riskLevel === 'high' ? '\u9ad8\u98ce\u9669' : section.riskLevel === 'medium' ? '\u4e2d\u98ce\u9669' : '\u4f4e\u98ce\u9669'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1373,19 +1528,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
                             关联单位
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-purple-600"></span>
-                            招标人
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-teal-600"></span>
-                            招标代理
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                            专家单位
-                          </span>
+                          </span>
                         </div>
                       </div>
 
@@ -1415,70 +1558,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                           详情分析思考与推理过程
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          {(
-                            section.riskLevel === 'low'
-                              ? [
-                                  {
-                                    label: '研判 1',
-                                    badgeClass: 'bg-emerald-100 text-emerald-800',
-                                    title: '股权穿透与控制关系核查',
-                                    content: `系统已对参标的 ${section.companyCount || section.companies?.length || 3} 家单位进行多层股权穿透排查，各单位股权结构完全独立，未发现直接或间接的控股/参股关系，亦无同一实际控制人特征。`
-                                  },
-                                  {
-                                    label: '研判 2',
-                                    badgeClass: 'bg-emerald-100 text-emerald-800',
-                                    title: '高管任职与交叉控制排查',
-                                    content: '经工商监管及高管数据库比对，各参标单位的法定代表人、董事、监事及高级管理人员均无交叉兼职或高管重叠现象，管理层独立性良好。'
-                                  },
-                                  {
-                                    label: '研判 3',
-                                    badgeClass: 'bg-blue-100 text-blue-800',
-                                    title: '法规对照与合规建议',
-                                    content: '依据《招投标法》及《招投标法实施条例》相关规定，本次投标单位之间无同母公司或控制关系，未触发任何违规风险红线，建议正常推进后续开评标流程。'
-                                  }
-                                ]
-                              : section.riskLevel === 'medium'
-                              ? [
-                                  {
-                                    label: '研判 1',
-                                    badgeClass: 'bg-amber-100 text-amber-800',
-                                    title: '股权穿透与潜在关联',
-                                    content: '经多层股权穿透排查，少数单位存在少量历史参股或边缘交集，但持股比例低于 10%，未形成实质控制关系。'
-                                  },
-                                  {
-                                    label: '研判 2',
-                                    badgeClass: 'bg-amber-100 text-amber-800',
-                                    title: '管理层与历史关联排查',
-                                    content: '部分单位高管曾在历史时期共同任职，当前无直接交叉兼职，建议对标书编制及资金流水进行常规辅助核验。'
-                                  },
-                                  {
-                                    label: '研判 3',
-                                    badgeClass: 'bg-blue-100 text-blue-800',
-                                    title: '法规对照与处置建议',
-                                    content: '未触及直接控股关系一票否决条款，但提示存在中度关联关注项，建议评标委员会对相关投标人的商务文件进行重点审核。'
-                                  }
-                                ]
-                              : [
-                                  {
-                                    label: '研判 1',
-                                    badgeClass: 'bg-red-100 text-red-700',
-                                    title: '股权穿透与同一控制人',
-                                    content: '穿透股东结构发现，中洲科技集团同时直接控股【华数物联】(65%) 并间接控制【智感云联】(51%)，表决权高度归属于同一实际控制人，属于典型“同一控制人支配下的协同投标”。'
-                                  },
-                                  {
-                                    label: '研判 2',
-                                    badgeClass: 'bg-amber-100 text-amber-800',
-                                    title: '交叉持股与管理层重叠',
-                                    content: '【星脉感知】与【华数物联】存在回避失效，星脉感知监事同时在智感云联担任执行董事，且投标保证金划转显示来自相同集中资金池，具备高危串标协同特征。'
-                                  },
-                                  {
-                                    label: '研判 3',
-                                    badgeClass: 'bg-blue-100 text-blue-800',
-                                    title: '法规对照与处置建议',
-                                    content: '依据《招投标法实施条例》第三十四条“存在控股关系的不同单位不得参加同一标段投标”之规定，建议评标委员会暂停开标进程，并将 5 家问题单位移交重点质询。'
-                                  }
-                                ]
-                          ).map((step, idx) => {
+                          {judgementSteps.map((step, idx) => {
                             const isRevealed = idx < visibleStepCount;
                             if (!isRevealed) {
                               return (
@@ -1552,7 +1632,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {issueList.map((item) => (
+                        {sortedIssueList.map((item) => (
                           <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-3.5 px-4 font-bold text-slate-900">
                               {item.issueType}
@@ -1569,22 +1649,30 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                               {item.relationPath}
                             </td>
                             <td className="py-3.5 px-4 text-xs text-slate-600">
-                              {item.evidenceSummary}
+                              {buildEvidenceSummary(item)}
                             </td>
                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
                               <button
                                 onClick={() =>
-                                  setDetailPopup({
-                                    type: 'topology',
-                                    title: `合规穿透与关联拓扑图谱 - ${item.issueType}`,
-                                    subtitle: item.companies.join('、'),
-                                  })
+                                  setDetailPopup(
+                                    isContactIssueItem(item)
+                                      ? {
+                                          type: 'contact',
+                                          title: item.issueType,
+                                          subtitle: item.companies.join('?'),
+                                        }
+                                      : {
+                                          type: 'topology',
+                                          title: `??????????? - ${item.issueType}`,
+                                          subtitle: item.companies.join('?'),
+                                        }
+                                  )
                                 }
-                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 cursor-pointer hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors"
-                              >
-                                查看图谱
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-blue-600 hover:text-blue-800 cursor-pointer hover:bg-blue-50 transition-colors"
+                              title="查看图谱"
+                            >
+                              <Search className="w-4.5 h-4.5" />
+                            </button>
                             </td>
                           </tr>
                         ))}
@@ -1719,11 +1807,11 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                                     subtitle: comp.name,
                                   })
                                 }
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors cursor-pointer border border-blue-200/80 whitespace-nowrap"
-                              >
-                                查看图谱
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
+                              title="查看图谱"
+                            >
+                              <Search className="w-4.5 h-4.5" />
+                            </button>
                             </td>
                           </tr>
                         ))
@@ -1918,6 +2006,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
 
               {/* View Switchers inside Popup */}
               <div className="flex items-center gap-2">
+                {detailPopup.type !== 'contact' && (
                 <div className="flex items-center bg-white border border-blue-200/80 p-1 rounded-xl shadow-2xs">
                   <button
                     onClick={() =>
@@ -1965,6 +2054,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                     联系方式
                   </button>
                 </div>
+                )}
 
                 <button
                   onClick={() => setDetailPopup(null)}
@@ -2104,37 +2194,15 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
 
               {detailPopup.type === 'contact' && (
                 <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
-                        <PhoneCall className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                          投标单位联系方式关联排查列表
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
-                            section.riskLevel === 'low' || contactAssocs.length === 0
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}>
-                            共 {section.companies.length} 家单位 / 触发 {section.riskLevel === 'low' ? 0 : contactAssocs.length} 项重合
-                          </span>
-                        </h3>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          对比各投标单位工商登记、年报预留电话、注册/实际办公地址及电子邮箱信息
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Search box */}
+                  <div className="flex justify-end">
                     <div className="relative shrink-0">
                       <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
                         type="text"
                         value={contactSearchKeyword}
                         onChange={(e) => setContactSearchKeyword(e.target.value)}
-                        placeholder="搜索单位/电话/地址/邮箱..."
-                        className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 transition-all"
+                        placeholder="????/??/??/??..."
+                        className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-56 transition-all"
                       />
                     </div>
                   </div>
@@ -2164,7 +2232,7 @@ export const EquityAnalysisModal: React.FC<EquityAnalysisModalProps> = ({
                               电子邮箱
                             </div>
                           </th>
-                          <th className="p-3 min-w-[120px]">排查风险与重合标记</th>
+                          
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
