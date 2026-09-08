@@ -1,0 +1,573 @@
+.company-profile-page {
+    padding-top: 20px;
+}
+
+/* 主 tab 尺寸缩小：宽 120px、高 36px（原 168×42）。 */
+.company-detail-area .enterprise-tabs-main button {
+    width: 120px !important;
+    height: 36px !important;
+    font-size: 14px !important;
+}
+
+/* 子 switch（股东 / 人员 / 知识产权）统一为 bordered 按钮样式，与工商信息 tab 一致。 */
+.company-detail-area .enterprise-shareholder-switch,
+.company-detail-area .enterprise-personnel-switch,
+.company-detail-area .enterprise-ip-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 0;
+}
+
+.company-detail-area .enterprise-shareholder-switch button,
+.company-detail-area .enterprise-personnel-switch button,
+.company-detail-area .enterprise-ip-switch button {
+    position: static !important;
+    height: 34px !important;
+    padding: 0 14px !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 4px !important;
+    background: #fff !important;
+    color: #333 !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    line-height: 34px !important;
+    cursor: pointer !important;
+}
+
+.company-detail-area .enterprise-shareholder-switch button.is-active,
+.company-detail-area .enterprise-personnel-switch button.is-active,
+.company-detail-area .enterprise-ip-switch button.is-active {
+    border-color: #dbeafe !important;
+    background: #f8fafc !important;
+    color: #071428 !important;
+    font-weight: 800 !important;
+}
+
+.company-detail-area .enterprise-shareholder-switch button::after,
+.company-detail-area .enterprise-shareholder-switch button.is-active::after,
+.company-detail-area .enterprise-personnel-switch button::after,
+.company-detail-area .enterprise-personnel-switch button.is-active::after,
+.company-detail-area .enterprise-ip-switch button::after,
+.company-detail-area .enterprise-ip-switch button.is-active::after {
+    display: none !important;
+}
+
+.company-profile-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.company-context-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 14px 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.company-context-title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.company-context-icon {
+    flex: 0 0 auto;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #2563eb, #4338ca);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.company-context-title h2 {
+    margin: 0;
+    font-size: 15px;
+    line-height: 20px;
+    color: #0f172a;
+}
+
+.company-context-title p {
+    margin: 2px 0 0;
+    max-width: 900px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.company-context-meta {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.context-chip {
+    padding: 5px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.context-chip strong {
+    color: #0f172a;
+}
+
+.company-profile-list-card {
+    margin-bottom: 16px;
+}
+
+/* 股东名称搜索框：复用全局 .profile-search 视觉风格，放置于股东 head 区内。 */
+.enterprise-shareholder-search {
+    position: relative;
+    width: 220px;
+    max-width: 100%;
+}
+
+.enterprise-shareholder-search-trigger {
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #94a3b8;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.enterprise-shareholder-search-trigger:hover {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.enterprise-shareholder-search svg {
+    width: 14px;
+    height: 14px;
+}
+
+.enterprise-shareholder-search input {
+    width: 100%;
+    height: 34px;
+    padding: 0 31px 0 35px;
+    border: 1px solid #dbe2ec;
+    border-radius: 6px;
+    background: #fff;
+    color: #1e293b;
+    outline: none;
+    font-size: 14px;
+}
+
+.enterprise-shareholder-search input::placeholder {
+    color: #b7c0cf;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.enterprise-shareholder-search input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, .12);
+}
+
+.enterprise-shareholder-search-reset {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 17px;
+    line-height: 20px;
+    transform: translateY(-50%);
+    cursor: pointer;
+}
+
+.enterprise-shareholder-search-reset:hover {
+    color: #475569;
+    background: #f1f5f9;
+}
+
+/* 股东表格空态行：搜索无匹配时整行居中提示。 */
+.enterprise-shareholder-empty {
+    padding: 48px 20px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 14px;
+    font-weight: normal;
+    background: #fafbfd;
+}
+
+.enterprise-shareholder-empty.is-hidden {
+    display: none;
+}
+
+/* 主要人员 head 容器：切换标签 + 搜索框，与股东 head 布局对齐。 */
+.enterprise-personnel-head {
+    margin-bottom: 18px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.enterprise-personnel-head .enterprise-personnel-switch {
+    margin-bottom: 0;
+}
+
+.enterprise-personnel-search {
+    /* 人员搜索框复用股东搜索框样式，额外的间距由父容器 flex gap 控制。 */
+}
+
+/* 风险情况 head：标题 + 搜索框同一行。 */
+.enterprise-risk-head {
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.enterprise-risk-head h3 {
+    margin: 0;
+}
+
+.enterprise-risk-search {
+    /* 复用股东搜索框样式。 */
+}
+
+.company-detail-area .enterprise-ip-search {
+    /* 覆盖 index.css 全局 .enterprise-ip-search 样式，复用股东搜索框的定位布局。 */
+    width: 220px;
+    padding: 0;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    position: relative;
+}
+
+.company-detail-area .enterprise-ip-search input {
+    width: 100%;
+    height: 34px;
+    padding: 0 31px 0 35px;
+    border: 1px solid #dbe2ec;
+    border-radius: 6px;
+    background: #fff;
+    color: #1e293b;
+    outline: none;
+    font-size: 14px;
+}
+
+.company-detail-area .enterprise-ip-search input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, .12);
+}
+
+.company-detail-area .enterprise-ip-search input::placeholder {
+    color: #b7c0cf;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* 分页控件：< [1] 2 > 样式，选中蓝色。 */
+.enterprise-pagination {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.enterprise-page-btn {
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid #dbe2ec;
+    border-radius: 4px;
+    background: #fff;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+
+.enterprise-page-btn:hover:not(.is-disabled):not(.is-active) {
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+
+.enterprise-page-btn.is-active {
+    border-color: #3b82f6;
+    background: #3b82f6;
+    color: #fff;
+}
+
+.enterprise-page-btn.is-disabled {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #cbd5e1;
+    cursor: not-allowed;
+}
+
+.enterprise-page-prev,
+.enterprise-page-next {
+    font-size: 18px;
+    line-height: 30px;
+    padding: 0 6px;
+}
+
+.company-detail-area .enterprise-shareholder-name {
+    color: #334155 !important;
+    font-weight: 400 !important;
+}
+
+/* 企业图谱 iframe 容器 */
+.enterprise-topology-wrap {
+    width: 100%;
+    min-height: 600px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.enterprise-topology-iframe {
+    width: 100%;
+    height: 70vh;
+    min-height: 600px;
+    border: 0;
+    display: block;
+}
+
+/* 企业档案弹窗：复用 index.css 的 modal-mask/modal-panel/modal-head/modal-body 结构，
+   这里只覆盖宽高与档案区内边距，避免与 modal-body 的 padding 叠加。 */
+.company-detail-modal-panel {
+    /* 宽度撑满遮罩区域（仅保留 modal-mask 的 16px 外边距），达到最大展示宽度。 */
+    width: 100%;
+}
+
+.company-detail-modal-panel .modal-body {
+    padding: 20px 24px 28px;
+}
+
+.company-detail-area {
+    padding: 0;
+}
+
+.company-detail-area .enterprise-detail-page {
+    min-width: 0;
+    background: transparent;
+}
+
+/* 统一档案摘要区域文字样式：标签与值同字号、同字重、同颜色，不再区分加粗/蓝色链接。 */
+.company-detail-area .enterprise-summary-field span,
+.company-detail-area .enterprise-summary-field .enterprise-summary-value {
+    color: #333;
+    font-weight: 400;
+}
+
+.company-detail-area .enterprise-summary-field .enterprise-summary-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.company-detail-empty {
+    padding: 56px 20px;
+    text-align: center;
+    color: #94a3b8;
+}
+
+.company-detail-empty svg {
+    width: 44px;
+    height: 44px;
+    color: #cbd5e1;
+    margin-bottom: 12px;
+}
+
+.company-detail-empty strong {
+    display: block;
+    margin-bottom: 6px;
+    color: #64748b;
+    font-size: 15px;
+}
+
+.company-detail-empty span {
+    font-size: 12px;
+}
+
+/* 企业年报卡片：与主要人员/股东信息卡片视觉一致（白底 + 灰蓝表头 + 蓝系配色）。 */
+.enterprise-annual-card {
+    margin-top: 20px;
+    padding: 0 16px 28px;
+    background: #fff;
+}
+
+.enterprise-annual-card h3 {
+    margin: 0 0 20px;
+    color: #071428;
+    font-size: 18px;
+    line-height: 28px;
+    font-weight: 900;
+}
+
+.enterprise-annual-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    border: 1px solid #dfe5f1;
+    background: #fff;
+    table-layout: fixed;
+}
+
+.enterprise-annual-table th,
+.enterprise-annual-table td {
+    height: 54px;
+    padding: 0 16px;
+    border: 1px solid #dfe5f1;
+    color: #334155;
+    font-size: 15px;
+    font-weight: 400;
+    vertical-align: middle;
+}
+
+.enterprise-annual-table th {
+    background: #f1f3fb;
+    color: #071428;
+    font-weight: 500;
+    text-align: center;
+}
+
+.enterprise-annual-table th:first-child,
+.enterprise-annual-table td:first-child {
+    width: 76px;
+    text-align: center;
+}
+
+.enterprise-annual-table th:nth-child(2) {
+    width: 16%;
+}
+
+.enterprise-annual-table th:nth-child(3) {
+    width: 24%;
+}
+
+.enterprise-annual-table th:nth-child(4) {
+    width: 38%;
+}
+
+.enterprise-annual-table th:nth-child(5) {
+    width: 16%;
+}
+
+.enterprise-annual-table td:nth-child(2) {
+    text-align: center;
+}
+
+/* 风险情况卡片：与主要人员/股东信息卡片视觉一致（白底 + 灰蓝表头 + 蓝系配色）。 */
+.enterprise-risk-card {
+    margin-top: 20px;
+    padding: 0 16px 28px;
+    background: #fff;
+}
+
+.enterprise-risk-card h3 {
+    margin: 0 0 20px;
+    color: #071428;
+    font-size: 18px;
+    line-height: 28px;
+    font-weight: 900;
+}
+
+.enterprise-risk-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    border: 1px solid #dfe5f1;
+    background: #fff;
+    table-layout: fixed;
+}
+
+.enterprise-risk-table th,
+.enterprise-risk-table td {
+    height: 54px;
+    padding: 0 16px;
+    border: 1px solid #dfe5f1;
+    color: #334155;
+    font-size: 15px;
+    font-weight: 400;
+    vertical-align: middle;
+    word-break: break-all;
+}
+
+.enterprise-risk-table th {
+    background: #f1f3fb;
+    color: #071428;
+    font-weight: 500;
+    text-align: center;
+}
+
+.enterprise-risk-table th:first-child,
+.enterprise-risk-table td:first-child {
+    width: 68px;
+    text-align: center;
+}
+
+.enterprise-risk-table th:nth-child(2),
+.enterprise-risk-table td:nth-child(2) {
+    width: 22%;
+}
+
+.enterprise-risk-table th:nth-child(3),
+.enterprise-risk-table td:nth-child(3) {
+    width: 14%;
+    text-align: center;
+}
+
+.enterprise-risk-table th:nth-child(4),
+.enterprise-risk-table td:nth-child(4) {
+    width: 14%;
+    text-align: center;
+}
+
+.enterprise-risk-table th:nth-child(5),
+.enterprise-risk-table td:nth-child(5) {
+    width: 18%;
+}
+
+.enterprise-risk-table th:nth-child(6),
+.enterprise-risk-table td:nth-child(6) {
+    width: 32%;
+}

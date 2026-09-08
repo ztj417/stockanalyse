@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="renderer" content="webkit">
+    <title>股权穿透图</title>
+    <meta name="description" content="专业交互式企业股权穿透图，支持双向股权穿透、点击加号展开与收缩节点、层级穿透、搜索、缩放平移及高清图片导出。">
+
+    <!-- 公共 CSS 在前、页面专属 CSS 在后，便于页面样式覆盖公共样式 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- 引入 Lucide 图标库（与原项目 lucide-react 对应，保持图标完全一致） -->
+    <script src="./js/lucide.min.js"></script>
+    <!-- 引入 jQuery：本页所有 DOM 缓存、事件绑定、显隐切换统一使用 jQuery，符合规范 3.3.1 -->
+    <script src="https://unpkg.com/jquery@3.7.1/dist/jquery.min.js"></script>
+
+    <link rel="stylesheet" href="./css/common.css">
+    <link rel="stylesheet" href="./css/equity-penetration.css">
+</head>
+<body class="page-body">
+    <div id="equity-penetration-app" class="app-container">
+        <!-- 1. 顶部头部工具栏（企业切换、操作按钮） -->
+        <header id="header-bar" class="header-bar">
+            <!-- 子工具条：当前企业切换 + 右侧操作按钮 -->
+            <div class="header-sub-bar">
+                <!-- 当前企业名称：纯文本展示，不做下拉 -->
+                <div class="company-switcher-wrap">
+                    <div class="company-name-plain">
+                        <i data-lucide="building" class="icon-building-plain"></i>
+                        <span id="current-company-name" class="current-company-name-plain">云南建投第四建设有限公司</span>
+                    </div>
+                </div>
+
+                <!-- 右侧操作按钮组 -->
+                <div class="header-actions">
+                    <button
+                        id="btn-toggle-fullscreen"
+                        class="header-action-btn header-action-btn-mono"
+                        type="button"
+                        title="全屏查看图谱"
+                    >
+                        <i data-lucide="maximize-2" class="icon-action"></i>
+                        <span id="fullscreen-btn-text">全屏查看</span>
+                    </button>
+
+                    <button
+                        id="btn-save-image"
+                        class="header-action-btn header-action-btn-mono"
+                        type="button"
+                        title="导出高清穿透图 PNG"
+                    >
+                        <i data-lucide="image" class="icon-action"></i>
+                        <span>保存图片</span>
+                    </button>
+
+                </div>
+            </div>
+        </header>
+
+        <!-- 2. 交互式 SVG + HTML 穿透画布 -->
+        <main id="canvas-main" class="canvas-main">
+            <div
+                id="penetration-canvas-viewport"
+                class="canvas-viewport"
+            >
+                <!-- 背景水印层 -->
+                <div id="canvas-watermark-layer" class="canvas-watermark-layer"></div>
+
+                <!-- 网格点阵背景 -->
+                <div id="canvas-grid-pattern" class="canvas-grid-pattern"></div>
+
+                <!-- 方向与持股流向图例 -->
+                <div id="canvas-direction-legend" class="canvas-direction-legend">
+                    <span class="legend-direction-icon">↓</span>
+                    <span class="legend-direction-title">持股方向</span>
+                    <span class="legend-direction-divider">|</span>
+                    <span class="legend-direction-desc">箭头统一指向被投资企业（自上而下资本穿透）</span>
+                </div>
+
+                <!-- 主变换世界容器：translate + scale 包裹所有节点和连线 -->
+                <div id="canvas-world-transform" class="canvas-world-transform">
+                    <!-- SVG 连接线层：bus 母线、箭头、持股比例标签 -->
+                    <svg id="svg-tree-connections" class="svg-tree-connections">
+                        <defs>
+                            <!-- 红色向下箭头标记（保留以兼容扩展，实际连线使用 polygon 绘制） -->
+                            <marker
+                                id="arrow-down-red"
+                                viewBox="0 0 10 10"
+                                refX="5"
+                                refY="5"
+                                markerWidth="6"
+                                markerHeight="6"
+                                orient="auto"
+                            >
+                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"></path>
+                            </marker>
+                        </defs>
+                        <!-- bus group 由 JS 动态填充 -->
+                    </svg>
+
+                    <!-- 节点卡片容器，由 JS 动态渲染 -->
+                    <div id="node-cards-container" class="node-cards-container"></div>
+                </div>
+            </div>
+
+            <!-- 3. 右下角浮动控件 -->
+            <div id="canvas-floating-controls" class="canvas-floating-controls">
+                <!-- 层级展开/收起按钮组 -->
+                <div class="controls-group">
+                    <button
+                        id="btn-expand-all"
+                        class="controls-btn controls-btn-text"
+                        type="button"
+                        title="展开全部上下级层级"
+                    >
+                        <i data-lucide="layers" class="icon-controls icon-controls-blue"></i>
+                        <span>全部展开</span>
+                    </button>
+
+                    <div class="controls-divider"></div>
+
+                    <button
+                        id="btn-collapse-all"
+                        class="controls-btn controls-btn-text"
+                        type="button"
+                        title="收缩至第一层级"
+                    >
+                        <i data-lucide="minimize" class="icon-controls icon-controls-slate"></i>
+                        <span>收起多层</span>
+                    </button>
+
+                    <div class="controls-divider"></div>
+
+                    <button
+                        id="btn-toggle-watermark"
+                        class="controls-btn controls-btn-text controls-btn-watermark"
+                        type="button"
+                        title="切换背景防伪水印"
+                    >
+                        <i data-lucide="stamp" class="icon-controls"></i>
+                        <span>水印</span>
+                    </button>
+                </div>
+
+                <!-- 缩放与定位控件组 -->
+                <div class="controls-group">
+                    <button
+                        id="btn-center-root"
+                        class="controls-btn controls-btn-icon"
+                        type="button"
+                        title="回到中心核心企业"
+                    >
+                        <i data-lucide="crosshair" class="icon-controls icon-controls-rose"></i>
+                    </button>
+
+                    <div class="controls-divider"></div>
+
+                    <button
+                        id="btn-zoom-in"
+                        class="controls-btn controls-btn-icon"
+                        type="button"
+                        title="放大"
+                    >
+                        <i data-lucide="zoom-in" class="icon-controls"></i>
+                    </button>
+
+                    <button
+                        id="btn-zoom-percent"
+                        class="controls-btn controls-btn-percent"
+                        type="button"
+                        title="点击重置为 100%"
+                    >100%</button>
+
+                    <button
+                        id="btn-zoom-out"
+                        class="controls-btn controls-btn-icon"
+                        type="button"
+                        title="缩小"
+                    >
+                        <i data-lucide="zoom-out" class="icon-controls"></i>
+                    </button>
+
+                    <div class="controls-divider"></div>
+
+                    <button
+                        id="btn-fit-view"
+                        class="controls-btn controls-btn-icon"
+                        type="button"
+                        title="适应视图大小"
+                    >
+                        <i data-lucide="maximize" class="icon-controls"></i>
+                    </button>
+
+                    <button
+                        id="btn-reset-view"
+                        class="controls-btn controls-btn-icon"
+                        type="button"
+                        title="重置位置与缩放"
+                    >
+                        <i data-lucide="rotate-ccw" class="icon-controls"></i>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 模板区：节点卡片模板（向下/向上节点共用，class 区分方向） -->
+        <script type="text/html" id="node-card-temp">
+            <div class="node-card-wrap" data-node-id="{{id}}" data-direction="{{direction}}" style="left:{{left}}px;top:{{top}}px;width:{{width}}px;height:{{height}}px;">
+                {{expandButtonHtml}}
+                <div class="node-card {{cardClass}}" data-node-id="{{id}}">
+                    <span class="node-card-name" title="{{title}}">{{displayName}}</span>
+                </div>
+            </div>
+        </script>
+
+        <!-- 模板区：展开/收起按钮（+/-） -->
+        <script type="text/html" id="expand-button-temp">
+            <button
+                class="node-expand-btn {{positionClass}}"
+                data-node-id="{{id}}"
+                title="{{title}}"
+                type="button"
+            >
+                <i data-lucide="{{iconName}}" class="icon-expand"></i>
+            </button>
+        </script>
+
+        <!-- 模板区：空态 -->
+        <script type="text/html" id="empty-state-temp">
+            <div class="empty-state">
+                <p class="empty-state-title">{{title}}</p>
+                <p class="empty-state-desc">{{desc}}</p>
+            </div>
+        </script>
+    </div>
+
+    <!-- 企业详情弹窗（CompanyDetailModal） -->
+    <div id="company-detail-modal-overlay" class="modal-overlay hidden">
+        <div id="company-detail-modal-container" class="modal-container modal-container-detail">
+            <!-- 弹窗头部 -->
+            <div class="detail-modal-header">
+                <div class="detail-modal-header-left">
+                    <div class="detail-modal-tags">
+                        <span id="detail-modal-type-tag" class="detail-modal-type-tag">核心穿透企业</span>
+                        <span id="detail-modal-status-tag" class="detail-modal-status-tag">存续（在营）</span>
+                    </div>
+                    <h3 id="detail-modal-title" class="detail-modal-title">企业名称</h3>
+                    <p id="detail-modal-short-name" class="detail-modal-short-name hidden">简称：</p>
+                </div>
+                <button
+                    id="btn-close-modal"
+                    class="detail-modal-close-btn"
+                    type="button"
+                    title="关闭"
+                >
+                    <i data-lucide="x" class="icon-modal-close"></i>
+                </button>
+            </div>
+
+            <!-- 弹窗内容区 -->
+            <div class="detail-modal-body">
+                <!-- 持股概览 -->
+                <div id="detail-modal-equity-overview" class="detail-modal-equity-overview hidden">
+                    <div class="equity-overview-left">
+                        <span class="equity-overview-label">穿透持股比例</span>
+                        <p id="detail-modal-ratio" class="equity-overview-ratio">-</p>
+                    </div>
+                    <div id="detail-modal-amount-wrap" class="equity-overview-right hidden">
+                        <span class="equity-overview-label">认缴出资金额</span>
+                        <p id="detail-modal-amount" class="equity-overview-amount"></p>
+                    </div>
+                </div>
+
+                <!-- 关键信息网格 -->
+                <div class="detail-modal-info-grid">
+                    <div class="info-grid-item">
+                        <i data-lucide="user" class="icon-info"></i>
+                        <div class="info-grid-text">
+                            <span class="info-grid-label">法定代表人</span>
+                            <span id="detail-modal-legal-person" class="info-grid-value">李建波</span>
+                        </div>
+                    </div>
+
+                    <div class="info-grid-item">
+                        <i data-lucide="building-2" class="icon-info"></i>
+                        <div class="info-grid-text">
+                            <span class="info-grid-label">注册资本</span>
+                            <span id="detail-modal-registered-capital" class="info-grid-value">100000.00万人民币</span>
+                        </div>
+                    </div>
+
+                    <div class="info-grid-item">
+                        <i data-lucide="award" class="icon-info"></i>
+                        <div class="info-grid-text">
+                            <span class="info-grid-label">统一社会信用代码</span>
+                            <span id="detail-modal-credit-code" class="info-grid-value info-grid-value-mono">91530000216524184W</span>
+                        </div>
+                    </div>
+
+                    <div class="info-grid-item">
+                        <i data-lucide="calendar" class="icon-info"></i>
+                        <div class="info-grid-text">
+                            <span class="info-grid-label">成立日期</span>
+                            <span id="detail-modal-establish-date" class="info-grid-value">1990-03-24</span>
+                        </div>
+                    </div>
+
+                    <div class="info-grid-item info-grid-item-full">
+                        <i data-lucide="map-pin" class="icon-info"></i>
+                        <div class="info-grid-text">
+                            <span class="info-grid-label">所属省市 / 注册地址</span>
+                            <span id="detail-modal-province" class="info-grid-value">云南省昆明市高新区滇缅大道2411号</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 关联分支与股权网络 -->
+                <div class="detail-modal-relations">
+                    <h4 class="relations-title">关联分支与股权网络</h4>
+                    <div class="relations-grid">
+                        <div class="relations-card relations-card-up">
+                            <span class="relations-card-label">
+                                <i data-lucide="arrow-up-right" class="icon-relations icon-relations-blue"></i>
+                                上级股东数量
+                            </span>
+                            <span id="detail-modal-parents-count" class="relations-card-value relations-card-value-blue">0 家</span>
+                        </div>
+                        <div class="relations-card relations-card-down">
+                            <span class="relations-card-label">
+                                <i data-lucide="arrow-down-right" class="icon-relations icon-relations-emerald"></i>
+                                对外投资企业
+                            </span>
+                            <span id="detail-modal-children-count" class="relations-card-value relations-card-value-emerald">0 家</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 弹窗底部操作 -->
+            <div class="detail-modal-footer">
+                <button
+                    id="btn-set-root-company"
+                    class="detail-modal-set-root-btn"
+                    type="button"
+                >
+                    <i data-lucide="compass" class="icon-set-root"></i>
+                    以该公司为核心重新穿透
+                </button>
+                <button
+                    id="btn-close-modal-footer"
+                    class="detail-modal-confirm-btn"
+                    type="button"
+                >确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加节点弹窗（AddNodeModal） -->
+    <div id="add-node-modal-overlay" class="modal-overlay hidden">
+        <div id="add-node-modal-card" class="modal-container modal-container-add">
+            <!-- 弹窗头部 -->
+            <div class="add-modal-header">
+                <div class="add-modal-header-left">
+                    <i data-lucide="plus-circle" class="icon-add-modal-title"></i>
+                    <h3 class="add-modal-title">添加企业节点</h3>
+                </div>
+                <button
+                    id="btn-close-add-modal"
+                    class="add-modal-close-btn"
+                    type="button"
+                    title="关闭"
+                >
+                    <i data-lucide="x" class="icon-modal-close"></i>
+                </button>
+            </div>
+
+            <!-- 表单内容 -->
+            <form id="add-node-form" class="add-modal-form">
+                <div class="form-row">
+                    <label class="form-label">关联目标企业</label>
+                    <select id="select-target-company" class="form-select"></select>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label">关联关系类型</label>
+                    <div class="form-radio-grid">
+                        <label class="form-radio-card form-radio-card-blue" data-direction="shareholder">
+                            <input type="radio" name="direction" class="form-radio-input" value="shareholder">
+                            <span>向上关联（上级股东）</span>
+                        </label>
+                        <label class="form-radio-card form-radio-card-emerald is-active" data-direction="subsidiary">
+                            <input type="radio" name="direction" class="form-radio-input" value="subsidiary" checked>
+                            <span>向下关联（对外投资）</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label">企业全称 <span class="form-required">*</span></label>
+                    <input
+                        id="input-company-name"
+                        type="text"
+                        class="form-input"
+                        placeholder="例如：云南建投物业管理发展有限公司"
+                        required
+                    >
+                </div>
+
+                <div class="form-row form-row-grid-2">
+                    <div class="form-row-col">
+                        <label class="form-label">企业简称</label>
+                        <input
+                            id="input-short-name"
+                            type="text"
+                            class="form-input"
+                            placeholder="例如：建投物业"
+                        >
+                    </div>
+                    <div class="form-row-col">
+                        <label class="form-label">持股 / 投资比例</label>
+                        <input
+                            id="input-company-ratio"
+                            type="text"
+                            class="form-input"
+                            placeholder="例如：25%"
+                            value="10%"
+                        >
+                    </div>
+                </div>
+
+                <div class="form-row form-row-grid-2">
+                    <div class="form-row-col">
+                        <label class="form-label">法定代表人</label>
+                        <input
+                            id="input-legal-person"
+                            type="text"
+                            class="form-input"
+                            placeholder="例如：张明"
+                            value="张明"
+                        >
+                    </div>
+                    <div class="form-row-col">
+                        <label class="form-label">出资金额</label>
+                        <input
+                            id="input-amount"
+                            type="text"
+                            class="form-input"
+                            placeholder="例如：1000.00万元"
+                            value="1000.00万元"
+                        >
+                    </div>
+                </div>
+
+                <div class="form-footer">
+                    <button
+                        id="btn-cancel-add"
+                        type="button"
+                        class="form-btn form-btn-cancel"
+                    >取消</button>
+                    <button
+                        id="btn-submit-add"
+                        type="submit"
+                        class="form-btn form-btn-submit"
+                    >确认添加</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 页面接口配置：集中管理接口地址，避免散落在点击事件中 -->
+    <script>
+        window.pageConfig = {
+            // Mock 开关：开发联调阶段从 mock 文件读取数据，正式接入后台后置为 false
+            useMock: true,
+            // 详情数据接口：根据企业主键获取企业详情
+            getDetailData: 'xxxaction.action?cmd=getDetailData',
+            // 列表数据接口：获取穿透图谱数据
+            getTreeData: 'xxxaction.action?cmd=getTreeData',
+            // 保存数据接口：保存新增节点
+            saveNodeData: 'xxxaction.action?cmd=saveNodeData'
+        };
+    </script>
+
+    <!-- 资源加载：先加载 Mock 数据，再加载工具类，最后加载页面主脚本 -->
+    <script src="./js/mock/equity-penetration.mock.js"></script>
+    <script src="./js/treeLayout.js"></script>
+    <script src="./js/exportImage.js"></script>
+    <script src="./js/equity-penetration.js"></script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!--
+ * @Author: wuzhou
+ * @Date: 2021-03-29 09:01:28
+ * @LastEditTime: 2021-04-30 08:47:15
+ * @LastEditors: wuzhou
+ * @Description: 
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+  <meta name="renderer" content="webkit">
+  <title>精准搜</title>
+  <script src="../../fui/js/cssboot.js"></script>
+  <script>
+    SrcBoot.output([
+      './js/lib/remfit.js',
+      "./css/common.css",
+      "./css/zstpexactsearch.css"
+    ]);
+  </script>
+</head>
+
+<body>
+  <div class="page-loading"></div>
+  <div class="main" id="main">
+    <div class="tabview">
+      <div class="choose tab-hd">
+        <div class="choose-hd clearfix">
+          <img src="css/images/zstpexactsearch/knowledge_title_02.png" alt="" />
+          <a href="javascript:;" class="home"></a>
+          <div class="r">
+            <div class="choose-user-txt">白主任，欢迎你</div>
+            <img src="css/images/zstpexactsearch/user_img.png" alt="" class="choose-user-img" />
+          </div>
+        </div>
+        <div class="choose-bd clearfix">
+          <div class="choose-note l">
+            <div class="hdl choose-note-item" data-target="0">
+              <span id="item-name" class="item-name" >肖大宝</span>
+              <i class="choose-note-close"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="choose-content tab-bd">
+        <div class="bdl choose-content-list" data-target="0">
+          <iframe src="zstpexactsearchpopup.html" frameborder="0"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.pageConfig = {
+
+    }
+  </script>
+
+  <script src="../../fui/js/jsboot.js"></script>
+
+  <!-- 页面脚本 -->
+  <script>
+    SrcBoot.output([
+      "./js/lib/jquery-tab.js",
+      "../../fui/js/libs/util.f9x.js",
+      "./js/zstpexactsearch.js"
+    ]);
+  </script>
+
+  <script>
+    Util.hidePageLoading();
+  </script>
+</body>
+
+</html>

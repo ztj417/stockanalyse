@@ -1,0 +1,151 @@
+@charset "UTF-8";
+/**!
+ * 精准搜
+ * author: fxyue
+ * date:2021-03-08
+ */
+.main {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background: url("../css/images/bg.jpg") top center no-repeat;
+  background-size: 100% 100%;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+.choose {
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+}
+
+.choose.active .choose-hd {
+  background: none;
+  border: 0;
+}
+
+.choose.active .choose-bd {
+  display: none;
+}
+
+.choose-hd {
+  height: 46px;
+  position: relative;
+  background: url("../css/images/zstpexactsearch/choose_hd_bg_01.png") bottom left repeat-x;
+  background-size: 1px 46px;
+  border-bottom: 0.01rem solid #416eb5;
+  padding: 0px 16px 0px 3px;
+}
+
+.choose-hd > img {
+  position: absolute;
+  left: 3px;
+  height: 65px;
+}
+
+.home {
+  width: 35px;
+  height: 31px;
+  margin: 8px 0px 0px 30px;
+  border-radius: 6px;
+  -webkit-box-shadow: 0px 0px 4px 4px rgba(2, 16, 56, 0.15);
+          box-shadow: 0px 0px 4px 4px rgba(2, 16, 56, 0.15);
+  background: url("../css/images/home_icon.png") no-repeat;
+  background-size: 100% 100%;
+}
+
+.choose-user-txt {
+  float: left;
+  line-height: 46px;
+  color: #fff;
+  font-size: 16px;
+  margin-right: 20px;
+}
+
+.choose-user-img {
+  float: left;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.choose-bd {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 29px;
+  padding-left: 20px;
+  background: url("../css/images/zstpexactsearchpopup/bottom_bg.png") repeat-x;
+  background-size: 1px 35px;
+  z-index: 50;
+}
+
+.choose-note-item {
+  float: left;
+  margin-left: 3px;
+  height: 27px;
+  line-height: 27px;
+  border: 0.01rem solid #2c5093;
+  border-radius: 4px 4px 0px 0px;
+  position: relative;
+  padding: 0px 18px;
+  color: #fff;
+  font-size: 16px;
+  background: url("../css/images/zstpexactsearch/choose_note_bg.jpg") repeat-x;
+  background-size: 1px 27px;
+  cursor: pointer;
+  opacity: 0.5;
+  filter: alpha(opacity=50);
+  -ms-filter: progid:DXImageTransform.Microsoft.Alpha opacity=50;
+}
+
+.choose-note-item.active {
+  opacity: 1;
+  filter: alpha(opacity=100);
+  -ms-filter: progid:DXImageTransform.Microsoft.Alpha opacity=100;
+}
+
+.choose-note-item > i {
+  position: absolute;
+  width: 12px;
+  height: 13px;
+  right: -4px;
+  top: -3px;
+  background: url("../css/images/zstpexactsearch/choose_note_close.png") no-repeat;
+  background-size: 100% 100%;
+  cursor: pointer;
+}
+
+.choose-line-img {
+  float: left;
+  height: 13px;
+  margin-top: 9px;
+}
+
+.choose-content {
+  position: absolute;
+  z-index: 2;
+  top: 47px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.choose-content-list > iframe,
+.choose-content-list {
+  width: 100%;
+  height: 100%;
+}
+
+.choose-wd {
+  line-height: 32px;
+  color: #fff !important;
+}

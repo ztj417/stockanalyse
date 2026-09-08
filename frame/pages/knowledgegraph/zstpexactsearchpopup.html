@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>项目关联图谱</title>
+  <link rel="stylesheet" href="./css/zstpexactsearchpopup.css">
+</head>
+<body>
+  <header class="graph-toolbar" id="projectSearch">
+    <div class="project-search">
+      <label class="project-search-label" for="projectSearchInput">项目名称</label>
+      <div class="project-search-control">
+        <input
+          id="projectSearchInput"
+          class="project-search-input"
+          type="text"
+          autocomplete="off"
+          placeholder="请输入项目名称进行搜索"
+          aria-autocomplete="list"
+          aria-controls="projectSearchResults"
+          aria-expanded="false"
+        >
+        <button id="projectSearchClear" class="project-search-clear" type="button" aria-label="清空项目搜索">×</button>
+        <ul id="projectSearchResults" class="project-search-results" role="listbox" aria-label="项目名称搜索结果"></ul>
+      </div>
+      <div class="bidder-filter" id="bidderFilter">
+        <button id="bidderFilterToggle" class="toolbar-select" type="button" aria-expanded="false" aria-controls="bidderFilterMenu">
+          <span class="toolbar-select-caption">投标单位</span>
+          <span id="bidderFilterLabel" class="toolbar-select-value">全部投标单位关联拓扑（全景图）</span>
+          <span class="toolbar-select-arrow" aria-hidden="true"></span>
+        </button>
+        <div id="bidderFilterMenu" class="toolbar-menu bidder-filter-menu" role="menu" aria-label="投标单位"></div>
+      </div>
+      <div class="rule-filter" id="ruleFilter">
+      <button id="ruleFilterToggle" class="rule-filter-toggle" type="button" aria-expanded="false" aria-controls="ruleFilterMenu">
+        <span class="rule-filter-icon" aria-hidden="true"></span>
+        <span id="ruleFilterLabel">规则分类：全部</span>
+        <span class="rule-filter-arrow" aria-hidden="true"></span>
+      </button>
+      <div id="ruleFilterMenu" class="rule-filter-menu" role="menu" aria-label="规则分类">
+        <button class="rule-filter-all is-selected" type="button" data-rule-id="all" role="menuitem">全部规则分类<span class="rule-filter-check">✓</span></button>
+        <div class="rule-filter-group">
+          <div class="rule-filter-group-title">股权关系维度 <em>权重40%</em></div>
+          <button type="button" data-rule-id="direct-control" role="menuitem">直接控股</button>
+          <button type="button" data-rule-id="indirect-control" role="menuitem">间接控股</button>
+          <button type="button" data-rule-id="equity-participation" role="menuitem">参股关系</button>
+        </div>
+        <div class="rule-filter-group">
+          <div class="rule-filter-group-title">人员关系维度 <em>权重30%</em></div>
+          <button type="button" data-rule-id="key-personnel" role="menuitem">主要人员审查</button>
+          <button type="button" data-rule-id="natural-person-shareholder" role="menuitem">自然人股东审查</button>
+          <button type="button" data-rule-id="corporate-shareholder" role="menuitem">法人股东审查</button>
+          <button type="button" data-rule-id="legal-representative" role="menuitem">法定代表人审查</button>
+          <button type="button" data-rule-id="actual-controller" role="menuitem">实际控制人审查</button>
+          <button type="button" data-rule-id="actual-beneficiary" role="menuitem">实际受益人审查</button>
+          <button type="button" data-rule-id="management-relation" role="menuitem">管理关系审查</button>
+        </div>
+        <div class="rule-filter-group">
+          <div class="rule-filter-group-title">主体联系维度 <em>权重30%</em></div>
+          <button type="button" data-rule-id="annual-report" role="menuitem">年报信息审查</button>
+          <button type="button" data-rule-id="registered-address" role="menuitem">注册地址审查</button>
+          <button type="button" data-rule-id="registered-phone" role="menuitem">注册电话审查</button>
+          <button type="button" data-rule-id="registered-email" role="menuitem">注册邮箱审查</button>
+        </div>
+      </div>
+      </div>
+    </div>
+  </header>
+  <div id="myDiagramDiv" aria-label="项目关联图谱"></div>
+  <div id="graphNodeTooltip" class="graph-node-tooltip" role="tooltip" aria-hidden="true"></div>
+
+  <script src="./js/lib/go.js"></script>
+  <script src="./js/stock-project-unit-graphs.mock.js"></script>
+  <script src="./js/zstpexactsearchpopup.js"></script>
+</body>
+</html>

@@ -1,0 +1,2910 @@
+'use strict';
+(function (win, doc) {
+    var pageState = {};
+    var pageSize = 10;
+    var sectionList = [];
+    var filteredList = [];
+    var selectedSection = null;
+    var activeTab = 'overview';
+    var detailPopupData = null;
+    var matrixCompanySearch = '';
+    var matrixCategorySearch = 'all';
+    var companySearchKeyword = '';
+    var selectedDistributionCategory = 'control';
+    var selectedEnterpriseMainTab = '基本信息';
+    var selectedEnterpriseSubTab = '工商信息';
+    var selectedEnterpriseIpSubTab = '专利信息';
+    var selectedEnterprisePersonnelHistory = false;
+    var selectedEnterpriseShareholderHistory = false;
+    var overviewTypingTimer = null;
+    var overviewEffectTimers = [];
+    var expandedMatrixGroups = {
+        'matrix-grp-1': true,
+        'matrix-grp-2': true,
+        'matrix-grp-3': true,
+        'matrix-grp-4': true
+    };
+    var $keywordInput = null;
+    var $riskFilter = null;
+    var $sectionTableBody = null;
+    var $pageTotal = null;
+    var $pager = null;
+    var $detailModal = null;
+    var $modalCode = null;
+    var $modalTitle = null;
+    var $modalRiskBadge = null;
+    var $modalBody = null;
+    var $detailTabs = null;
+    var $detailPopup = null;
+    var $detailPopupTitle = null;
+    var $detailPopupSubtitle = null;
+    var $detailPopupBody = null;
+
+    initPage();
+
+    // 页面唯一入口：先缓存节点，再集中绑定事件，最后加载首屏数据。
+    function initPage() {
+        cachePageNodes();
+        bindPageEvents();
+        loadInitialData();
+    }
+
+    // 页面节点只在初始化阶段查找一次，后续功能统一复用缓存变量。
+    function cachePageNodes() {
+        $keywordInput = doc.getElementById('sectionKeyword');
+        $riskFilter = doc.getElementById('riskFilter');
+        $sectionTableBody = doc.getElementById('sectionTableBody');
+        $pageTotal = doc.getElementById('pageTotal');
+        $pager = doc.getElementById('pager');
+        $detailModal = doc.getElementById('detailModal');
+        $modalCode = doc.getElementById('modalCode');
+        $modalTitle = doc.getElementById('modalTitle');
+        $modalRiskBadge = doc.getElementById('modalRiskBadge');
+        $modalBody = doc.getElementById('modalBody');
+        $detailTabs = doc.getElementById('detailTabs');
+        $detailPopup = doc.getElementById('detailPopup');
+        $detailPopupTitle = doc.getElementById('detailPopupTitle');
+        $detailPopupSubtitle = doc.getElementById('detailPopupSubtitle');
+        $detailPopupBody = doc.getElementById('detailPopupBody');
+        pageState.currentPage = 1;
+        pageState.keyword = '';
+        pageState.riskFilter = 'all';
+    }
+
+    // 静态节点事件统一在这里绑定；动态详情内容通过容器事件委托处理。
+    function bindPageEvents() {
+        doc.getElementById('searchButton').addEventListener('click', onSearchClick);
+        doc.getElementById('resetButton').addEventListener('click', onResetClick);
+        doc.getElementById('closeModalButton').addEventListener('click', closeDetailModal);
+        doc.getElementById('closeModalIconButton').addEventListener('click', closeDetailModal);
+        $keywordInput.addEventListener('input', onKeywordInput);
+        $keywordInput.addEventListener('keydown', onKeywordKeydown);
+        $riskFilter.addEventListener('change', onRiskFilterChange);
+        $sectionTableBody.addEventListener('click', onTableClick);
+        $pager.addEventListener('click', onPagerClick);
+        $detailTabs.addEventListener('click', onTabClick);
+        $modalBody.addEventListener('click', onModalBodyClick);
+        $modalBody.addEventListener('input', onModalBodyInput);
+        $modalBody.addEventListener('change', onModalBodyChange);
+        $detailModal.addEventListener('click', onModalMaskClick);
+        $detailPopup.addEventListener('click', onDetailPopupClick);
+        doc.getElementById('closeDetailPopup').addEventListener('click', closeDetailPopup);
+    }
+
+    // 首屏数据由 useMock 开关决定来源，两种来源最终进入同一个响应处理函数。
+    function loadInitialData() {
+        var loadingRenderData = {};
+        var loadingHtml = '';
+
+        loadingRenderData.message = '数据加载中...';
+        loadingHtml = renderTemplate('empty-row-temp', loadingRenderData);
+        $sectionTableBody.innerHTML = loadingHtml;
+
+        if (win.pageConfig.useMock) {
+            // 【mock获取数据,后续根据实际业务调用后台获取：标段列表接口】
+            var mockResponseData = win.getMockSectionList();
+            handleSectionListResponse(mockResponseData);
+            return;
+        }
+
+        requestSectionListData();
+    }
+
+    // 正式接口分支使用原生 XMLHttpRequest，避免页面依赖未引入的框架运行时。
+    function requestSectionListData() {
+        var requestUrl = win.pageConfig.listApi;
+        var request = new XMLHttpRequest();
+
+        request.open('GET', requestUrl, true);
+        request.setRequestHeader('Accept', 'application/json');
+        request.onreadystatechange = function () {
+            var responseData = null;
+
+            if (request.readyState !== 4) {
+                return;
+            }
+            if (request.status < 200 || request.status >= 300) {
+                renderSectionLoadFailure('数据加载失败，请稍后重试');
+                return;
+            }
+            try {
+                responseData = JSON.parse(request.responseText);
+            } catch (error) {
+                renderSectionLoadFailure('接口返回数据格式不正确');
+                return;
+            }
+            handleSectionListResponse(responseData);
+        };
+        request.onerror = function () {
+            renderSectionLoadFailure('网络连接失败，请稍后重试');
+        };
+        request.send(null);
+    }
+
+    function handleSectionListResponse(responseData) {
+        var rawList = [];
+
+        if (!responseData || responseData.success === false) {
+            renderSectionLoadFailure(responseData && responseData.message ? responseData.message : '数据加载失败，请稍后重试');
+            return;
+        }
+        if (responseData.data && Object.prototype.toString.call(responseData.data) === '[object Array]') {
+            rawList = responseData.data;
+        } else if (Object.prototype.toString.call(responseData) === '[object Array]') {
+            rawList = responseData;
+        }
+
+        sectionList = transformSectionListData(rawList);
+        applySectionFilters();
+        renderSectionTable();
+    }
+
+    function renderSectionLoadFailure(message) {
+        var failureRenderData = {};
+        var failureHtml = '';
+
+        sectionList = [];
+        filteredList = [];
+        failureRenderData.message = message;
+        failureHtml = renderTemplate('empty-row-temp', failureRenderData);
+        $sectionTableBody.innerHTML = failureHtml;
+        renderPager();
+    }
+
+    // 将 Mock 或后台接口字段映射为页面统一模型，渲染层不直接消费原始响应。
+    function transformSectionListData(rawList) {
+        var result = [];
+        var index = 0;
+        for (index = 0; index < rawList.length; index += 1) {
+            var item = rawList[index];
+            var section = {};
+            section.id = item.id || '';
+            section.code = item.code || '';
+            section.name = item.name || '';
+            section.companyCount = item.companyCount || 0;
+            section.riskScore = item.riskScore || 0;
+            section.riskLevel = item.riskLevel || 'low';
+            section.riskCount = getRiskCount(item);
+            section.budgetAmount = item.budgetAmount || '未提供';
+            section.bidDate = item.bidDate || '未提供';
+            section.riskSummary = item.riskSummary || '';
+            section.conclusionData = item.conclusionData || {};
+            section.companyRiskGroups = item.companyRiskGroups || [];
+            section.equityIssueList = item.equityIssueList || [];
+            section.contactAssociations = item.contactAssociations || [];
+            section.companies = item.companies || [];
+            section.equityRelations = item.equityRelations || [];
+            section.suspiciousFactors = item.suspiciousFactors || [];
+            section.mainRiskTypes = item.mainRiskTypes || [];
+            result.push(section);
+        }
+        return result;
+    }
+
+    function onSearchClick() {
+        pageState.keyword = $keywordInput.value;
+        pageState.currentPage = 1;
+        applySectionFilters();
+        renderSectionTable();
+    }
+
+    function onKeywordInput() {
+        pageState.keyword = $keywordInput.value;
+        pageState.currentPage = 1;
+        applySectionFilters();
+        renderSectionTable();
+    }
+
+    function onKeywordKeydown(event) {
+        if (event.key === 'Enter') {
+            onSearchClick();
+        }
+    }
+
+    function onRiskFilterChange() {
+        pageState.riskFilter = $riskFilter.value;
+        pageState.currentPage = 1;
+        applySectionFilters();
+        renderSectionTable();
+    }
+
+    function onResetClick() {
+        $keywordInput.value = '';
+        $riskFilter.value = 'all';
+        pageState.keyword = '';
+        pageState.riskFilter = 'all';
+        pageState.currentPage = 1;
+        selectedSection = null;
+        activeTab = 'overview';
+        applySectionFilters();
+        renderSectionTable();
+        closeDetailModal();
+    }
+
+    function onTableClick(event) {
+        var button = findActionButton(event.target);
+        if (!button) {
+            return;
+        }
+        var action = button.getAttribute('data-act');
+        if (action === 'open-detail') {
+            var sectionId = button.getAttribute('data-id');
+            openSectionDetail(sectionId);
+        }
+    }
+
+    function onPagerClick(event) {
+        var button = findPagerButton(event.target);
+        if (!button) {
+            return;
+        }
+        if (button.disabled) {
+            return;
+        }
+        var pageValue = button.getAttribute('data-page');
+        pageState.currentPage = Number(pageValue);
+        renderSectionTable();
+    }
+
+    function onTabClick(event) {
+        var target = findParentButton(event.target, $detailTabs);
+        if (!target) {
+            return;
+        }
+        activeTab = target.getAttribute('data-tab') || 'overview';
+        renderTabs();
+        renderModalBody();
+    }
+
+    // 详情区内容会随页签重建，因此在父容器上统一处理按钮事件。
+    function onModalBodyClick(event) {
+        var target = findParentButton(event.target, $modalBody);
+        if (!target) {
+            return;
+        }
+        var matrixGroupId = target.getAttribute('data-matrix-toggle');
+        if (matrixGroupId) {
+            expandedMatrixGroups[matrixGroupId] = expandedMatrixGroups[matrixGroupId] === false;
+            renderModalBody();
+            return;
+        }
+        if (target.getAttribute('data-matrix-reset') !== null) {
+            matrixCompanySearch = '';
+            matrixCategorySearch = 'all';
+            renderModalBody();
+            return;
+        }
+        if (target.getAttribute('data-company-reset') !== null) {
+            companySearchKeyword = '';
+            renderModalBody();
+            return;
+        }
+        if (target.getAttribute('data-distribution-category')) {
+            selectedDistributionCategory = target.getAttribute('data-distribution-category');
+            refreshRiskDistributionCard();
+            return;
+        }
+        if (target.getAttribute('data-open-knowledgegraph')) {
+            openKnowledgeGraphPage(target);
+            return;
+        }
+        if (target.getAttribute('data-open-popup')) {
+            openDetailPopup(target);
+            return;
+        }
+        if (target.getAttribute('data-open-tab') !== 'topology') {
+            return;
+        }
+        activeTab = 'topology';
+        renderTabs();
+        renderModalBody();
+    }
+
+    function onModalBodyInput(event) {
+        if (event.target.id === 'companySearchKeyword') {
+            companySearchKeyword = event.target.value;
+            renderModalBody();
+            var companyInput = doc.getElementById('companySearchKeyword');
+            if (companyInput) {
+                companyInput.focus();
+                companyInput.setSelectionRange(companySearchKeyword.length, companySearchKeyword.length);
+            }
+            return;
+        }
+        if (event.target.id !== 'matrixCompanySearch') {
+            return;
+        }
+        matrixCompanySearch = event.target.value;
+        renderModalBody();
+        var input = doc.getElementById('matrixCompanySearch');
+        if (input) {
+            input.focus();
+            input.setSelectionRange(matrixCompanySearch.length, matrixCompanySearch.length);
+        }
+    }
+
+    function onModalBodyChange(event) {
+        if (event.target.id !== 'matrixCategorySearch') {
+            return;
+        }
+        matrixCategorySearch = event.target.value;
+        renderModalBody();
+    }
+
+    function onModalMaskClick(event) {
+        if (event.target === $detailModal) {
+            closeDetailModal();
+        }
+    }
+
+    function onDetailPopupClick(event) {
+        var target = findParentButton(event.target, $detailPopup);
+        if (target && target.getAttribute('data-enterprise-main-tab')) {
+            selectedEnterpriseMainTab = target.getAttribute('data-enterprise-main-tab');
+            selectedEnterpriseSubTab = '工商信息';
+            selectedEnterpriseIpSubTab = '专利信息';
+            selectedEnterprisePersonnelHistory = false;
+            selectedEnterpriseShareholderHistory = false;
+            refreshEnterpriseDetailPopup();
+            return;
+        }
+        if (target && target.getAttribute('data-enterprise-sub-tab')) {
+            selectedEnterpriseMainTab = '基本信息';
+            selectedEnterpriseSubTab = target.getAttribute('data-enterprise-sub-tab');
+            selectedEnterprisePersonnelHistory = false;
+            selectedEnterpriseShareholderHistory = false;
+            refreshEnterpriseDetailPopup();
+            return;
+        }
+        if (target && target.getAttribute('data-enterprise-ip-sub-tab')) {
+            selectedEnterpriseMainTab = '知识产权';
+            selectedEnterpriseIpSubTab = target.getAttribute('data-enterprise-ip-sub-tab');
+            refreshEnterpriseDetailPopup();
+            return;
+        }
+        if (target && target.getAttribute('data-enterprise-shareholder-history')) {
+            selectedEnterpriseShareholderHistory = target.getAttribute('data-enterprise-shareholder-history') === 'true';
+            refreshEnterpriseDetailPopup();
+            return;
+        }
+        if (target && target.getAttribute('data-enterprise-personnel-history')) {
+            selectedEnterprisePersonnelHistory = target.getAttribute('data-enterprise-personnel-history') === 'true';
+            refreshEnterpriseDetailPopup();
+            return;
+        }
+        if (event.target === $detailPopup) {
+            closeDetailPopup();
+        }
+    }
+
+    function applySectionFilters() {
+        filteredList = [];
+        var keyword = String(pageState.keyword || '').trim().toLowerCase();
+        var riskFilter = pageState.riskFilter || 'all';
+        var index = 0;
+        for (index = 0; index < sectionList.length; index += 1) {
+            var section = sectionList[index];
+            var matchRisk = isRiskMatched(section, riskFilter);
+            var matchKeyword = isKeywordMatched(section, keyword);
+            if (matchRisk && matchKeyword) {
+                filteredList.push(section);
+            }
+        }
+    }
+
+    function isRiskMatched(section, riskFilter) {
+        if (riskFilter === 'all') {
+            return true;
+        }
+        if (riskFilter === 'normal') {
+            return section.riskLevel === 'low' && section.riskCount === 0;
+        }
+        return section.riskLevel === riskFilter;
+    }
+
+    function isKeywordMatched(section, keyword) {
+        if (!keyword) {
+            return true;
+        }
+        var code = String(section.code || '').toLowerCase();
+        var name = String(section.name || '').toLowerCase();
+        if (code.indexOf(keyword) >= 0) {
+            return true;
+        }
+        return name.indexOf(keyword) >= 0;
+    }
+
+    function renderSectionTable() {
+        var totalPages = getTotalPages();
+        if (pageState.currentPage > totalPages) {
+            pageState.currentPage = totalPages;
+        }
+        var startIndex = (pageState.currentPage - 1) * pageSize;
+        var endIndex = startIndex + pageSize;
+        var htmlParts = [];
+        var rowIndex = 0;
+
+        if (filteredList.length === 0) {
+            htmlParts.push(renderTemplate('empty-row-temp', {
+                message: '未匹配到相关标段数据'
+            }));
+        } else {
+            for (rowIndex = startIndex; rowIndex < filteredList.length && rowIndex < endIndex; rowIndex += 1) {
+                var section = filteredList[rowIndex];
+                htmlParts.push(renderTemplate('section-row-temp', {
+                    seq: rowIndex + 1,
+                    id: section.id,
+                    code: escapeHtml(section.code),
+                    name: escapeHtml(section.name),
+                    companyCount: section.companyCount,
+                    riskCount: section.riskCount,
+                    riskBadge: buildRiskBadge(section)
+                }));
+            }
+        }
+
+        $sectionTableBody.innerHTML = htmlParts.join('');
+        $pageTotal.innerHTML = '共 ' + filteredList.length + ' 条 <span>10条/页</span>';
+        renderPager(totalPages);
+    }
+
+    function renderPager(totalPages) {
+        var htmlParts = [];
+        var pageNum = 1;
+        var previousDisabled = '';
+        var nextDisabled = '';
+        if (pageState.currentPage <= 1) {
+            previousDisabled = ' disabled';
+        }
+        if (pageState.currentPage >= totalPages) {
+            nextDisabled = ' disabled';
+        }
+        htmlParts.push('<button type="button" data-page="' + Math.max(1, pageState.currentPage - 1) + '"' + previousDisabled + ' title="上一页">‹</button>');
+        for (pageNum = 1; pageNum <= totalPages; pageNum += 1) {
+            var activeClass = '';
+            if (pageNum === pageState.currentPage) {
+                activeClass = ' class="is-active"';
+            }
+            htmlParts.push('<button type="button" data-page="' + pageNum + '"' + activeClass + '>' + pageNum + '</button>');
+        }
+        htmlParts.push('<button type="button" data-page="' + Math.min(totalPages, pageState.currentPage + 1) + '"' + nextDisabled + ' title="下一页">›</button>');
+        $pager.innerHTML = htmlParts.join('');
+    }
+
+    function openSectionDetail(sectionId) {
+        selectedSection = findSectionById(sectionId);
+        if (!selectedSection) {
+            return;
+        }
+        activeTab = 'overview';
+        matrixCompanySearch = '';
+        matrixCategorySearch = 'all';
+        companySearchKeyword = '';
+        selectedDistributionCategory = getDefaultRiskDistributionCategory(getRiskDistributionStats(selectedSection.equityIssueList || []));
+        expandedMatrixGroups = {
+            'matrix-grp-1': true,
+            'matrix-grp-2': true,
+            'matrix-grp-3': true,
+            'matrix-grp-4': true
+        };
+        $modalCode.textContent = selectedSection.code;
+        $modalTitle.textContent = selectedSection.name;
+        $modalRiskBadge.className = 'modal-risk-badge ' + getModalRiskClass(selectedSection);
+        $modalRiskBadge.textContent = '标段风险情况： ' + getSectionRiskLabel(selectedSection);
+        renderTabs();
+        renderModalBody();
+        $detailModal.classList.remove('is-hidden');
+    }
+
+    function closeDetailModal() {
+        clearOverviewTypewriterEffects();
+        closeDetailPopup();
+        $detailModal.classList.add('is-hidden');
+    }
+
+    function openDetailPopup(button) {
+        var encodedCompanies = button.getAttribute('data-popup-companies') || '';
+        var companies = [];
+        if (encodedCompanies) {
+            companies = decodeURIComponent(encodedCompanies).split('\u001f');
+        }
+        detailPopupData = {
+            type: button.getAttribute('data-open-popup') || 'topology',
+            title: button.getAttribute('data-popup-title') || '合规穿透与关联拓扑图谱',
+            subtitle: button.getAttribute('data-popup-subtitle') || '',
+            companies: companies
+        };
+        selectedEnterpriseMainTab = '基本信息';
+        selectedEnterpriseSubTab = '工商信息';
+        selectedEnterpriseIpSubTab = '专利信息';
+        selectedEnterprisePersonnelHistory = false;
+        selectedEnterpriseShareholderHistory = false;
+        $detailPopupTitle.textContent = detailPopupData.title;
+        $detailPopupSubtitle.textContent = detailPopupData.subtitle ? '涉及单位：' + detailPopupData.subtitle : '';
+        $detailPopupBody.innerHTML = buildDetailPopupHtml(selectedSection, detailPopupData);
+        $detailPopup.classList.remove('penetration-mask--enterprise');
+        if (detailPopupData.type === 'enterprise') {
+            $detailPopup.classList.add('penetration-mask--enterprise');
+        }
+        $detailPopup.classList.remove('is-hidden');
+    }
+
+    function closeDetailPopup() {
+        if (!$detailPopup) {
+            return;
+        }
+        detailPopupData = null;
+        $detailPopup.classList.add('is-hidden');
+        $detailPopup.classList.remove('penetration-mask--enterprise');
+        $detailPopupBody.innerHTML = '';
+    }
+
+    function refreshEnterpriseDetailPopup() {
+        if (!detailPopupData || detailPopupData.type !== 'enterprise') {
+            return;
+        }
+        $detailPopupBody.innerHTML = buildDetailPopupHtml(selectedSection, detailPopupData);
+    }
+
+    function openKnowledgeGraphPage(target) {
+        win.location.href = target.getAttribute('data-knowledgegraph-url') || './frame/pages/knowledgegraph/zstpexactsearchpopup.html';
+    }
+
+    function renderTabs() {
+        var buttons = $detailTabs.querySelectorAll('button');
+        var index = 0;
+        for (index = 0; index < buttons.length; index += 1) {
+            var button = buttons[index];
+            if (button.getAttribute('data-tab') === activeTab) {
+                button.classList.add('is-active');
+            } else {
+                button.classList.remove('is-active');
+            }
+        }
+    }
+
+    // 根据当前页签分发到单一渲染函数，切换页签时只刷新详情内容区。
+    function renderModalBody() {
+        clearOverviewTypewriterEffects();
+        if (!selectedSection) {
+            $modalBody.innerHTML = '';
+            return;
+        }
+        if (activeTab === 'overview') {
+            $modalBody.innerHTML = buildOverviewHtml(selectedSection);
+            initOverviewRiskDistributionChart(selectedSection);
+            startOverviewTypewriterEffects();
+            return;
+        }
+        if (activeTab === 'matrix') {
+            $modalBody.innerHTML = buildIssueMatrixHtml(selectedSection);
+            return;
+        }
+        if (activeTab === 'topology') {
+            $modalBody.innerHTML = buildTopologyHtml(selectedSection);
+            return;
+        }
+        if (activeTab === 'companies') {
+            $modalBody.innerHTML = buildCompanyHtml(selectedSection);
+        }
+    }
+
+    function buildOverviewHtml(section) {
+        var conclusion = section.conclusionData || {};
+        var issues = section.equityIssueList || [];
+        var issueStats = getIssueRiskStats(issues);
+        var problemCount = typeof conclusion.problematicCompanyCount === 'number'
+            ? conclusion.problematicCompanyCount
+            : getProblemCompanyNames(section).length;
+        var highGroupCount = typeof conclusion.highRiskGroupCount === 'number'
+            ? conclusion.highRiskGroupCount
+            : getHighRiskGroupCount(section);
+        var summaryText = conclusion.summaryText || section.riskSummary || '暂无综合结论。';
+        var issueDisplayCount = section.riskLevel === 'high' ? 12 : section.riskLevel === 'medium' ? 5 : issues.length;
+        var steps = buildJudgementSteps(section, issues, issueStats);
+        var distributionStats = getRiskDistributionStats(issues);
+
+        return ''
+            + '<div class="overview-layout overview-dashboard">'
+            + '<aside class="overview-sidebar">'
+            + buildOverviewMetric('参与单位', section.companyCount, '家', '本次投标单位总数', 'blue', 'building')
+            + buildOverviewMetric('问题单位家数', problemCount, '家', '触发风控规则单位', 'amber', 'users')
+            + buildOverviewMetric('风险单位组数量', highGroupCount, '个', '关联风险涉险单位组', 'rose', 'layers')
+            + buildOverviewMetric('问题总数', issueDisplayCount, '项', '风险线索触发规则数', 'purple', 'alert')
+            + '</aside>'
+            + '<div id="riskDistributionCardSlot" class="risk-distribution-slot">' + buildRiskDistributionCard(distributionStats) + '</div>'
+            + '<section class="diagnosis-card diagnosis-card--main">'
+            + '<div class="diagnosis-head">'
+            + '<div class="diagnosis-title">' + buildUiIcon('shield') + '<h3>股权审查结论卡</h3>'
+            + '<span class="diagnosis-badge diagnosis-badge--system">系统自动诊断结论</span>'
+            + buildDiagnosisRiskBadge(section)
+            + '</div>'
+            + '</div>'
+            + '<div class="diagnosis-conclusion diagnosis-conclusion--' + escapeHtml(section.riskLevel) + '"><strong>【总审查结论】</strong><span data-typing-conclusion data-typing-text="' + escapeHtml(summaryText) + '"></span></div>'
+            + '<div class="analysis-title"><span></span>详情分析思考与推理过程</div>'
+            + '<div class="analysis-steps">' + buildJudgementStepHtml(steps) + '</div>'
+            + '</section>'
+            + '</div>'
+            + buildOverviewIssueTable(section, issues);
+    }
+
+    function buildOverviewMetric(label, value, unit, note, tone, iconName) {
+        return '<div class="overview-metric overview-metric--' + tone + '">'
+            + '<div><div class="overview-metric__label">' + escapeHtml(label) + '</div>'
+            + '<div class="overview-metric__value">' + escapeHtml(value) + '<small>' + escapeHtml(unit) + '</small></div>'
+            + '<div class="overview-metric__note">' + escapeHtml(note) + '</div></div>'
+            + '<div class="overview-metric__icon">' + buildUiIcon(iconName) + '</div></div>';
+    }
+
+    function buildDiagnosisRiskBadge(section) {
+        if (section.riskLevel === 'high') {
+            return '<span class="diagnosis-badge diagnosis-badge--high">' + buildUiIcon('warning') + '高风险（红线预警）</span>';
+        }
+        if (section.riskLevel === 'medium') {
+            return '<span class="diagnosis-badge diagnosis-badge--medium">中风险（关注排查）</span>';
+        }
+        return '<span class="diagnosis-badge diagnosis-badge--low">低风险（合规通过）</span>';
+    }
+
+    function getIssueRiskStats(issues) {
+        var stats = { high: 0, medium: 0, low: 0 };
+        var index = 0;
+        for (index = 0; index < issues.length; index += 1) {
+            if (issues[index].riskLevel === 'high') {
+                stats.high += 1;
+            } else if (issues[index].riskLevel === 'medium') {
+                stats.medium += 1;
+            } else {
+                stats.low += 1;
+            }
+        }
+        return stats;
+    }
+
+    function getRiskDistributionStats(issues) {
+        var stats = [
+            { key: 'control', label: '控股关系', value: 0, color: '#ef3f68', desc: '控股、实际控制人、股东及受益人关系', rules: [] },
+            { key: 'personnel', label: '人员关系', value: 0, color: '#6366f1', desc: '法定代表人、主要人员、历史任职交叉', rules: [] },
+            { key: 'info', label: '信息相同', value: 0, color: '#f59e0b', desc: '电话、邮箱、地址及年报联系方式相同', rules: [] }
+        ];
+        var index = 0;
+        var statIndex = 0;
+        var category = '';
+        var issueType = '';
+
+        for (index = 0; index < issues.length; index += 1) {
+            issueType = issues[index].issueType || '风险线索';
+            category = getRiskDistributionCategory(issueType);
+            for (statIndex = 0; statIndex < stats.length; statIndex += 1) {
+                if (stats[statIndex].key === category) {
+                    stats[statIndex].value += 1;
+                    addRiskRuleStat(stats[statIndex], issueType);
+                    break;
+                }
+            }
+        }
+
+        return stats;
+    }
+
+    function addRiskRuleStat(categoryStat, issueType) {
+        var rules = categoryStat.rules || [];
+        var rule = null;
+        var index = 0;
+        var ruleLabel = normalizeRiskRuleLabel(categoryStat.key, issueType);
+        for (index = 0; index < rules.length; index += 1) {
+            if (rules[index].label === ruleLabel) {
+                rule = rules[index];
+                break;
+            }
+        }
+        if (!rule) {
+            rule = {
+                key: categoryStat.key + '-rule-' + rules.length,
+                categoryKey: categoryStat.key,
+                label: ruleLabel,
+                value: 0,
+                color: getRiskRuleColor(categoryStat.key, rules.length)
+            };
+            rules.push(rule);
+        }
+        rule.value += 1;
+        categoryStat.rules = rules;
+    }
+
+    function normalizeRiskRuleLabel(categoryKey, issueType) {
+        var text = issueType || '风险线索';
+        if (categoryKey === 'control') {
+            if (/直接控股/.test(text)) {
+                return '直接控股';
+            }
+            if (/参股/.test(text)) {
+                return '参股关系';
+            }
+            return '间接控股';
+        }
+        if (categoryKey === 'personnel') {
+            if (/自然人股东/.test(text)) {
+                return '自然人股东审查';
+            }
+            if (/法人股东/.test(text)) {
+                return '法人股东审查';
+            }
+            if (/法定代表人/.test(text)) {
+                return '法定代表人审查';
+            }
+            if (/管理关系/.test(text)) {
+                return '管理关系审查';
+            }
+            return '主要人员审查';
+        }
+        if (categoryKey === 'info') {
+            if (/年报/.test(text)) {
+                return '年报信息审查';
+            }
+            if (/注册地址|地址/.test(text)) {
+                return '注册地址审查';
+            }
+            if (/注册电话|电话|联系方式/.test(text)) {
+                return '注册电话审查';
+            }
+            if (/注册邮箱|邮箱/.test(text)) {
+                return '注册邮箱审查';
+            }
+            if (/专利/.test(text)) {
+                return '专利信息审查';
+            }
+            if (/著作权/.test(text)) {
+                return '著作权审查';
+            }
+            if (/域名/.test(text)) {
+                return '域名审查';
+            }
+            return '年报信息审查';
+        }
+        return text;
+    }
+
+    function getRiskDistributionCategoryMeta(categoryKey) {
+        if (categoryKey === 'control') {
+            return { label: '控股关系', color: '#ef3f68', desc: '控股、实际控制人、股东及受益人关系' };
+        }
+        if (categoryKey === 'personnel') {
+            return { label: '人员关系', color: '#6366f1', desc: '法定代表人、主要人员、历史任职交叉' };
+        }
+        return { label: '信息相同', color: '#f59e0b', desc: '电话、邮箱、地址及年报联系方式相同' };
+    }
+
+    function getRiskDistributionRuleTemplate(categoryKey) {
+        if (categoryKey === 'control') {
+            return [
+                { key: 'control-rule-direct', categoryKey: 'control', label: '直接控股', value: 0, color: getRiskRuleColor('control', 0) },
+                { key: 'control-rule-indirect', categoryKey: 'control', label: '间接控股', value: 0, color: getRiskRuleColor('control', 1) },
+                { key: 'control-rule-shareholding', categoryKey: 'control', label: '参股关系', value: 0, color: getRiskRuleColor('control', 2) }
+            ];
+        }
+        if (categoryKey === 'personnel') {
+            return [
+                { key: 'personnel-rule-staff', categoryKey: 'personnel', label: '主要人员审查', value: 0, color: getRiskRuleColor('personnel', 0) },
+                { key: 'personnel-rule-natural-shareholder', categoryKey: 'personnel', label: '自然人股东审查', value: 0, color: getRiskRuleColor('personnel', 1) },
+                { key: 'personnel-rule-corporate-shareholder', categoryKey: 'personnel', label: '法人股东审查', value: 0, color: getRiskRuleColor('personnel', 2) },
+                { key: 'personnel-rule-legal-person', categoryKey: 'personnel', label: '法定代表人审查', value: 0, color: getRiskRuleColor('personnel', 3) },
+                { key: 'personnel-rule-management', categoryKey: 'personnel', label: '管理关系审查', value: 0, color: getRiskRuleColor('personnel', 4) }
+            ];
+        }
+        if (categoryKey === 'info') {
+            return [
+                { key: 'info-rule-annual', categoryKey: 'info', label: '年报信息审查', value: 0, color: getRiskRuleColor('info', 0) },
+                { key: 'info-rule-address', categoryKey: 'info', label: '注册地址审查', value: 0, color: getRiskRuleColor('info', 1) },
+                { key: 'info-rule-phone', categoryKey: 'info', label: '注册电话审查', value: 0, color: getRiskRuleColor('info', 2) },
+                { key: 'info-rule-email', categoryKey: 'info', label: '注册邮箱审查', value: 0, color: getRiskRuleColor('info', 3) },
+                { key: 'info-rule-patent', categoryKey: 'info', label: '专利信息审查', value: 0, color: getRiskRuleColor('info', 4) },
+                { key: 'info-rule-copyright', categoryKey: 'info', label: '著作权审查', value: 0, color: getRiskRuleColor('info', 5) },
+                { key: 'info-rule-domain', categoryKey: 'info', label: '域名审查', value: 0, color: getRiskRuleColor('info', 6) }
+            ];
+        }
+        return [];
+    }
+
+    function getDefaultRiskDistributionCategory(stats) {
+        var index = 0;
+        for (index = 0; index < stats.length; index += 1) {
+            if (stats[index].value > 0) {
+                return stats[index].key;
+            }
+        }
+        return 'control';
+    }
+
+    function getSelectedRiskDistributionCategory(stats) {
+        var index = 0;
+        for (index = 0; index < stats.length; index += 1) {
+            if (stats[index].key === selectedDistributionCategory) {
+                return selectedDistributionCategory;
+            }
+        }
+        return getDefaultRiskDistributionCategory(stats);
+    }
+
+    function getRiskDistributionCategoryTotal(stats, categoryKey) {
+        var index = 0;
+        for (index = 0; index < stats.length; index += 1) {
+            if (stats[index].key === categoryKey) {
+                return stats[index].value;
+            }
+        }
+        return 0;
+    }
+
+    function getRiskRuleDistributionStats(stats, categoryKey) {
+        var rules = getRiskDistributionRuleTemplate(categoryKey);
+        var statIndex = 0;
+        var ruleIndex = 0;
+        var templateIndex = 0;
+        var currentRule = null;
+        var templateRule = null;
+        var matchedTemplate = false;
+        for (statIndex = 0; statIndex < stats.length; statIndex += 1) {
+            if (categoryKey && stats[statIndex].key !== categoryKey) {
+                continue;
+            }
+            for (ruleIndex = 0; ruleIndex < stats[statIndex].rules.length; ruleIndex += 1) {
+                currentRule = stats[statIndex].rules[ruleIndex];
+                matchedTemplate = false;
+                for (templateIndex = 0; templateIndex < rules.length; templateIndex += 1) {
+                    templateRule = rules[templateIndex];
+                    if (templateRule.label === currentRule.label) {
+                        templateRule.value = currentRule.value;
+                        matchedTemplate = true;
+                        break;
+                    }
+                }
+                if (!matchedTemplate) {
+                    rules.push(currentRule);
+                }
+            }
+        }
+        if (rules.length === 0) {
+            var meta = getRiskDistributionCategoryMeta(categoryKey || 'info');
+            rules.push({
+                key: 'empty-rule',
+                categoryKey: categoryKey || 'info',
+                label: '暂无' + meta.label + '规则命中',
+                value: 0,
+                color: '#e2e8f0'
+            });
+        }
+        return rules;
+    }
+
+    function getRiskRuleColor(categoryKey, index) {
+        var controlColors = ['#ef3f68', '#fb7185', '#be123c', '#f43f5e'];
+        var personnelColors = ['#6366f1', '#818cf8', '#a78bfa', '#4f46e5'];
+        var infoColors = ['#f59e0b', '#fbbf24', '#f97316', '#d97706'];
+        if (categoryKey === 'control') {
+            return controlColors[index % controlColors.length];
+        }
+        if (categoryKey === 'personnel') {
+            return personnelColors[index % personnelColors.length];
+        }
+        return infoColors[index % infoColors.length];
+    }
+
+    function getRiskDistributionCategory(issueType) {
+        if (/直接控股|间接控股|参股关系|控股关系|实际控制人|实际受益人|受益人/.test(issueType || '')) {
+            return 'control';
+        }
+        if (/人员|法定代表人|董事|监事|高管|任职|自然人股东|法人股东|管理关系/.test(issueType || '')) {
+            return 'personnel';
+        }
+        if (/年报|注册地址|注册电话|注册邮箱|电话|邮箱|地址|专利|著作权|域名|联系方式/.test(issueType || '')) {
+            return 'info';
+        }
+        return 'info';
+    }
+
+    function getRiskDistributionTotal(stats) {
+        var total = 0;
+        var index = 0;
+        for (index = 0; index < stats.length; index += 1) {
+            total += stats[index].value;
+        }
+        return total;
+    }
+
+    function buildRiskDistributionCard(stats) {
+        var total = getRiskDistributionTotal(stats);
+        var selectedCategory = getSelectedRiskDistributionCategory(stats);
+        var selectedTotal = getRiskDistributionCategoryTotal(stats, selectedCategory);
+        var riskRuleStats = getRiskRuleDistributionStats(stats, selectedDistributionCategory);
+        return '<section class="risk-distribution-card" aria-label="风险数量分布">'
+            + '<div class="risk-distribution-head">'
+            + '<div class="risk-distribution-title">' + buildUiIcon('pie') + '<h3>风险数量分布</h3></div>'
+            + '</div>'
+            + '<div class="risk-distribution-body">'
+            + '<div class="risk-distribution-visual"><div id="riskDistributionChart" class="risk-distribution-chart" role="img" aria-label="风险数量分布饼图"></div>'
+            + buildRiskDistributionMiniLegend(stats, total, selectedCategory)
+            + '</div>'
+            + '<div class="risk-distribution-legend risk-distribution-breakdown">' + buildRiskRuleDistributionLegend(riskRuleStats, selectedTotal) + '</div>'
+            + '</div>'
+            + '</section>';
+    }
+
+    function refreshRiskDistributionCard() {
+        var slot = doc.getElementById('riskDistributionCardSlot');
+        var issues = selectedSection ? (selectedSection.equityIssueList || []) : [];
+        var distributionStats = getRiskDistributionStats(issues);
+        if (!slot) {
+            return;
+        }
+        slot.innerHTML = buildRiskDistributionCard(distributionStats);
+        initOverviewRiskDistributionChart(selectedSection);
+    }
+
+    function buildRiskDistributionMiniLegend(stats, total, selectedCategory) {
+        var htmlParts = ['<div class="risk-distribution-mini-legend">'];
+        var index = 0;
+        var item = null;
+        for (index = 0; index < stats.length; index += 1) {
+            item = stats[index];
+            htmlParts.push('<button type="button" class="risk-distribution-mini-item risk-distribution-mini-item--' + escapeHtml(item.key) + (item.key === selectedCategory ? ' is-active' : '') + '" data-distribution-category="' + escapeHtml(item.key) + '">'
+                + '<span class="risk-distribution-mini-dot"></span>'
+                + '<span class="risk-distribution-mini-name">' + escapeHtml(item.label) + '</span>'
+                + '<strong class="risk-distribution-mini-percent">' + escapeHtml(formatRiskDistributionPercent(item.value, total)) + '</strong>'
+                + '</button>');
+        }
+        htmlParts.push('</div>');
+        return htmlParts.join('');
+    }
+
+    function buildRiskDistributionLegend(stats, total) {
+        var htmlParts = [];
+        var index = 0;
+        var item = null;
+        for (index = 0; index < stats.length; index += 1) {
+            item = stats[index];
+            htmlParts.push('<div class="risk-distribution-item risk-distribution-item--' + escapeHtml(item.key) + '">'
+                + '<span class="risk-distribution-dot"></span>'
+                + '<div><div class="risk-distribution-name">' + escapeHtml(item.label) + '</div></div>'
+                + '<div class="risk-distribution-count"><strong>' + escapeHtml(item.value) + '</strong><span>项</span><div class="risk-distribution-percent">' + escapeHtml(formatRiskDistributionPercent(item.value, total)) + '</div></div>'
+                + '</div>');
+        }
+        return htmlParts.join('');
+    }
+
+    function buildRiskRuleDistributionLegend(rules, total) {
+        var htmlParts = [];
+        var index = 0;
+        var item = null;
+        var bgColor = '';
+        for (index = 0; index < rules.length; index += 1) {
+            item = rules[index];
+            bgColor = getRiskRuleSoftColor(item.categoryKey);
+            htmlParts.push('<div class="risk-distribution-item risk-distribution-item--rule" style="--rule-color:' + escapeHtml(item.color) + ';--rule-bg:' + escapeHtml(bgColor) + ';">'
+                + '<span class="risk-distribution-dot"></span>'
+                + '<div><div class="risk-distribution-name">' + escapeHtml(item.label) + '</div></div>'
+                + '<div class="risk-distribution-count"><strong>' + escapeHtml(item.value) + '</strong><span>项</span><div class="risk-distribution-percent">' + escapeHtml(formatRiskDistributionPercent(item.value, total)) + '</div></div>'
+                + '</div>');
+        }
+        return htmlParts.join('');
+    }
+
+    function getRiskRuleSoftColor(categoryKey) {
+        if (categoryKey === 'control') {
+            return '#ffe4eb';
+        }
+        if (categoryKey === 'personnel') {
+            return '#e9eaff';
+        }
+        return '#fef3c7';
+    }
+
+    function formatRiskDistributionPercent(value, total) {
+        if (!total) {
+            return '0%';
+        }
+        return Math.round(value / total * 100) + '%';
+    }
+
+    function initOverviewRiskDistributionChart(section) {
+        var chartNode = doc.getElementById('riskDistributionChart');
+        var issues = section ? (section.equityIssueList || []) : [];
+        var stats = getRiskDistributionStats(issues);
+        var chartData = [];
+        var ruleChartData = [];
+        var selectedCategory = getSelectedRiskDistributionCategory(stats);
+        var riskRuleStats = getRiskRuleDistributionStats(stats, selectedDistributionCategory);
+        var index = 0;
+        var chart = null;
+
+        if (!chartNode || !win.echarts || typeof win.echarts.init !== 'function') {
+            return;
+        }
+
+        for (index = 0; index < stats.length; index += 1) {
+            chartData.push({
+                name: stats[index].label,
+                value: stats[index].value,
+                itemStyle: { color: stats[index].color }
+            });
+        }
+        for (index = 0; index < riskRuleStats.length; index += 1) {
+            ruleChartData.push({
+                name: riskRuleStats[index].label,
+                value: riskRuleStats[index].value,
+                itemStyle: { color: riskRuleStats[index].color }
+            });
+        }
+
+        chart = win.echarts.init(chartNode);
+        chart.setOption({
+            tooltip: { trigger: 'item' },
+            series: [{
+                name: '风险规则分布',
+                type: 'pie',
+                radius: ['64%', '78%'],
+                center: ['50%', '46%'],
+                data: ruleChartData,
+                label: { show: false },
+                emphasis: { scale: true }
+            }, {
+                name: '穿透大类',
+                type: 'pie',
+                radius: ['42%', '55%'],
+                center: ['50%', '46%'],
+                data: chartData,
+                label: { show: false },
+                emphasis: { scale: true }
+            }]
+        });
+        chart.resize();
+    }
+
+    function buildJudgementSteps(section, issues, stats) {
+        var primaryType = stats.high > 0 ? '高风险' : stats.medium > 0 ? '中风险' : stats.low > 0 ? '低风险' : '风险';
+        var representative = issues.length > 0
+            ? (issues[0].evidenceSummary || issues[0].relationPath || issues[0].issueType)
+            : '当前标段未发现异常记录';
+        var unhitText = issues.length > 0
+            ? '除风险问题清单已列明事项外，暂未发现其它分类的新增异常。'
+            : '当前标段未发现注册电话、注册地址、注册邮箱或人员任职交叉等异常。';
+        var advice = stats.high > 0
+            ? '建议将高风险问题涉及单位纳入重点复核范围，优先核验对应的股权、控制或投资关系，并同步复核中低风险线索真实性；必要时提交评标委员会进一步处置。'
+            : stats.medium > 0
+            ? '建议对中风险问题涉及单位开展补充核验，核验无新增异常后可继续推进评审。'
+            : '当前未发现高风险问题，建议按正常流程推进后续评审并保留本次核验记录。';
+        return [
+            {
+                label: '研判 1',
+                tone: stats.high > 0 ? 'red' : stats.medium > 0 ? 'amber' : 'green',
+                title: primaryType + '问题清单情况',
+                content: '当前标段风险问题清单共 ' + issues.length + ' 个问题，其中高风险 ' + stats.high + ' 个、中风险 ' + stats.medium + ' 个、低风险 ' + stats.low + ' 个。代表性问题为：' + representative + '。'
+            },
+            { label: '研判 2', tone: 'green', title: '未命中分类说明', content: unhitText },
+            { label: '研判 3', tone: 'blue', title: '处置意见', content: advice }
+        ];
+    }
+
+    function buildJudgementStepHtml(steps) {
+        var htmlParts = [];
+        var index = 0;
+        for (index = 0; index < steps.length; index += 1) {
+            var step = steps[index];
+            htmlParts.push('<article class="analysis-step is-waiting" data-analysis-step="' + index + '" data-step-tone="' + escapeHtml(step.tone) + '" data-step-label="' + escapeHtml(step.label) + '" data-step-title="' + escapeHtml(step.title) + '" data-step-content="' + escapeHtml(step.content) + '">'
+                + '<div class="analysis-step__pending">'
+                + '<div class="analysis-step__pending-title">' + buildUiIcon('clock') + '<span>' + escapeHtml(step.label + '：' + step.title) + ' — AI 深度推理研判中...</span></div>'
+                + '<div class="analysis-step__skeleton"><i></i><i></i></div>'
+                + '</div></article>');
+        }
+        return htmlParts.join('');
+    }
+
+    function startOverviewTypewriterEffects() {
+        var conclusionNode = $modalBody.querySelector('[data-typing-conclusion]');
+        renderTypingText(conclusionNode, 22);
+        revealAnalysisSteps();
+    }
+
+    function clearOverviewTypewriterEffects() {
+        var index = 0;
+        if (overviewTypingTimer) {
+            clearInterval(overviewTypingTimer);
+            overviewTypingTimer = null;
+        }
+        for (index = 0; index < overviewEffectTimers.length; index += 1) {
+            clearTimeout(overviewEffectTimers[index]);
+        }
+        overviewEffectTimers = [];
+    }
+
+    function renderTypingText(node, speed) {
+        var fullText = '';
+        var currentLength = 0;
+        var cursor = null;
+        if (!node) {
+            return;
+        }
+        fullText = node.getAttribute('data-typing-text') || '';
+        node.textContent = '';
+        cursor = doc.createElement('span');
+        cursor.className = 'typing-cursor';
+        node.parentNode.appendChild(cursor);
+        if (!fullText) {
+            cursor.parentNode.removeChild(cursor);
+            return;
+        }
+        overviewTypingTimer = setInterval(function () {
+            currentLength += 1;
+            node.textContent = fullText.slice(0, currentLength);
+            if (currentLength >= fullText.length) {
+                clearInterval(overviewTypingTimer);
+                overviewTypingTimer = null;
+                if (cursor.parentNode) {
+                    cursor.parentNode.removeChild(cursor);
+                }
+            }
+        }, speed);
+    }
+
+    function revealAnalysisSteps() {
+        var steps = $modalBody.querySelectorAll('[data-analysis-step]');
+        var delays = [350, 950, 1550];
+        var index = 0;
+        for (index = 0; index < steps.length; index += 1) {
+            overviewEffectTimers.push(setTimeout(function (stepNode) {
+                renderAnalysisStepContent(stepNode);
+            }, delays[index] || delays[delays.length - 1], steps[index]));
+        }
+    }
+
+    function renderAnalysisStepContent(stepNode) {
+        var tone = stepNode.getAttribute('data-step-tone') || 'blue';
+        var label = stepNode.getAttribute('data-step-label') || '';
+        var title = stepNode.getAttribute('data-step-title') || '';
+        var content = stepNode.getAttribute('data-step-content') || '';
+        stepNode.classList.remove('is-waiting');
+        stepNode.classList.add('is-revealed');
+        stepNode.innerHTML = '<div class="analysis-step__title"><span class="step-badge step-badge--' + escapeHtml(tone) + '">' + escapeHtml(label) + '</span>' + escapeHtml(title) + '</div><p>' + escapeHtml(content) + '</p>';
+    }
+
+    function buildIssueDisplayData(item, section) {
+        var issueType = item.issueType || '';
+        var subject = getIssueRelationSubject(item);
+        var companies = getIssueCompanies(item);
+        var result = {};
+        result.relationPathHtml = escapeHtml(item.relationPath || '');
+        result.evidenceSummary = item.evidenceSummary || '';
+
+        if (isAnnualReportIssue(issueType)) {
+            return buildAnnualReportIssueDisplayData(item, companies, subject);
+        }
+        if (isSameShareholderOrLegalPersonIssue(issueType)) {
+            result.relationPathHtml = buildStructuredIssuePathHtml(subject, companies);
+            result.evidenceSummary = joinCompanyNamesBy(companies, '，') + '有相同的' + getShareholderOrLegalPersonLabel(issueType) + '：' + subject;
+            return result;
+        }
+        if (isSameControllerOrBeneficiaryIssue(issueType)) {
+            result.relationPathHtml = buildStructuredIssuePathHtml(subject, buildControllerOrBeneficiaryLines(section, companies, subject));
+            result.evidenceSummary = joinCompanyNamesBy(companies, '和') + '有相同的' + getControllerOrBeneficiaryLabel(issueType) + '：' + subject;
+            return result;
+        }
+        if (issueType.indexOf('主要人员') >= 0) {
+            result.relationPathHtml = buildStructuredIssuePathHtml(subject, buildPersonnelLines(companies, subject));
+            result.evidenceSummary = joinCompanyNamesBy(companies, '和') + '有相同的历史任职董事长：' + subject;
+            return result;
+        }
+        if (issueType.indexOf('控股') >= 0 || issueType.indexOf('持股') >= 0 || issueType.indexOf('参股') >= 0) {
+            result.relationPathHtml = buildStructuredIssuePathHtml(joinCompanyNamesBy(companies, ' - '), [item.relationPath || '关联路径未登记']);
+            result.evidenceSummary = joinCompanyNamesBy(companies, '和') + '存在控股关系';
+        }
+        return result;
+    }
+
+    function buildStructuredIssuePathHtml(title, lines) {
+        var htmlParts = ['<div class="issue-path-structured">'];
+        var index = 0;
+        htmlParts.push('<div class="issue-path-structured__title">【' + escapeHtml(title || '关联主体未登记') + '】</div>');
+        for (index = 0; index < lines.length; index += 1) {
+            htmlParts.push('<div class="issue-path-structured__line">' + escapeHtml(lines[index] || '关联路径未登记') + '</div>');
+        }
+        htmlParts.push('</div>');
+        return htmlParts.join('');
+    }
+
+    function isAnnualReportIssue(issueType) {
+        return issueType.indexOf('年报信息审查') >= 0;
+    }
+
+    function buildAnnualReportIssueDisplayData(item, companies, subject) {
+        var contactKind = getAnnualReportContactKind(item.issueType || '');
+        var displayCompanies = getAnnualReportCompaniesForDisplay(companies, subject);
+        var pathLines = [];
+        var evidenceParts = [];
+        var index = 0;
+        var result = {};
+
+        for (index = 0; index < displayCompanies.length; index += 1) {
+            var companyName = displayCompanies[index];
+            pathLines.push(formatAnnualReportPathCompanyLine(companyName, getAnnualReportYears(companyName, subject, 'path')));
+            evidenceParts.push(formatAnnualReportEvidenceCompanyLine(companyName, getAnnualReportYears(companyName, subject, 'evidence')));
+        }
+        if (subject && subject !== '关联主体未登记') {
+            pathLines.push(contactKind.label + '：' + subject);
+        }
+        result.relationPathHtml = buildStructuredIssuePathHtml(contactKind.title, pathLines);
+        result.evidenceSummary = evidenceParts.join('和') + '之间年报中存在相同的' + contactKind.label + '：' + subject;
+        return result;
+    }
+
+    function getAnnualReportContactKind(issueType) {
+        if (issueType.indexOf('邮箱') >= 0) {
+            return { title: '年报邮箱相同', label: '邮箱' };
+        }
+        if (issueType.indexOf('电话') >= 0) {
+            return { title: '年报电话相同', label: '电话' };
+        }
+        return { title: '年报联系信息相同', label: '联系信息' };
+    }
+
+    function getAnnualReportCompaniesForDisplay(companies, subject) {
+        var preferredNames = [];
+        var result = [];
+        var index = 0;
+
+        if ((subject === '15060290782' || subject === '441564185@qq.com')
+            && hasName(companies, '中城恒业设计集团有限公司')
+            && hasName(companies, '中亿国际设计集团有限公司')) {
+            preferredNames.push('中城恒业设计集团有限公司');
+            preferredNames.push('中亿国际设计集团有限公司');
+        }
+        for (index = 0; index < preferredNames.length; index += 1) {
+            if (!hasName(result, preferredNames[index])) {
+                result.push(preferredNames[index]);
+            }
+        }
+        for (index = 0; index < companies.length; index += 1) {
+            if (companies[index] && !hasName(result, companies[index])) {
+                result.push(companies[index]);
+            }
+        }
+        return result;
+    }
+
+    function formatAnnualReportPathCompanyLine(companyName, years) {
+        if (!years || years.length === 0) {
+            return companyName;
+        }
+        return companyName + '（' + joinAnnualPathYears(years) + '）';
+    }
+
+    function formatAnnualReportEvidenceCompanyLine(companyName, years) {
+        if (!years || years.length === 0) {
+            return companyName;
+        }
+        return companyName + '[' + joinAnnualEvidenceYears(years) + ']';
+    }
+
+    function getAnnualReportYears(companyName, subject, mode) {
+        if (subject === '15060290782') {
+            if (companyName === '中城恒业设计集团有限公司') {
+                return ['2022'];
+            }
+            if (companyName === '中亿国际设计集团有限公司' && mode === 'evidence') {
+                return ['2023', '2024', '2022'];
+            }
+            if (companyName === '中亿国际设计集团有限公司') {
+                return ['2022', '2023', '2024'];
+            }
+        }
+        if (subject === '441564185@qq.com') {
+            if (companyName === '中城恒业设计集团有限公司') {
+                return ['2022'];
+            }
+            if (companyName === '中亿国际设计集团有限公司') {
+                return ['2022', '2023', '2024'];
+            }
+        }
+        return [];
+    }
+
+    function joinAnnualPathYears(years) {
+        var parts = [];
+        var index = 0;
+        for (index = 0; index < years.length; index += 1) {
+            if (years[index]) {
+                parts.push(years[index]);
+            }
+        }
+        if (parts.length === 0) {
+            return '';
+        }
+        return parts.join('、') + '年';
+    }
+
+    function joinAnnualEvidenceYears(years) {
+        var parts = [];
+        var index = 0;
+        for (index = 0; index < years.length; index += 1) {
+            if (years[index]) {
+                parts.push(years[index] + '年');
+            }
+        }
+        return parts.join('、');
+    }
+
+    function getIssueCompanies(item) {
+        var companies = item.companies || [];
+        var result = [];
+        var index = 0;
+        for (index = 0; index < companies.length; index += 1) {
+            if (companies[index] && !hasName(result, companies[index])) {
+                result.push(companies[index]);
+            }
+        }
+        return result;
+    }
+
+    function getIssueRelationSubject(item) {
+        var evidence = item.evidenceSummary || '';
+        var relationPath = item.relationPath || '';
+        var subject = extractIssueText(evidence, /关联值[：:]\s*([^。；;,，]+)/);
+        if (subject) {
+            return subject;
+        }
+        subject = extractIssueText(relationPath, /共同关联主体[：:]\s*([^。；;,，]+)/);
+        if (subject) {
+            return subject;
+        }
+        subject = extractIssueText(relationPath, /共同法人股[：:]\s*([^。；;,，]+)/);
+        if (subject) {
+            return subject;
+        }
+        subject = extractIssueText(relationPath, /相同值[：:]\s*([^。；;,，]+)/);
+        if (subject) {
+            return subject;
+        }
+        return '关联主体未登记';
+    }
+
+    function extractIssueText(text, pattern) {
+        var result = pattern.exec(text || '');
+        if (!result || !result[1]) {
+            return '';
+        }
+        return String(result[1]).replace(/^\s+|\s+$/g, '').replace(/[。；;,，]+$/g, '');
+    }
+
+    function isSameShareholderOrLegalPersonIssue(issueType) {
+        if (issueType.indexOf('法人股东') >= 0 || issueType.indexOf('法人股') >= 0) {
+            return true;
+        }
+        if (issueType.indexOf('自然人股东') >= 0 || issueType.indexOf('自然人股') >= 0) {
+            return true;
+        }
+        return issueType.indexOf('法定代表人') >= 0;
+    }
+
+    function getShareholderOrLegalPersonLabel(issueType) {
+        if (issueType.indexOf('自然人股东') >= 0 || issueType.indexOf('自然人股') >= 0) {
+            return '自然人股东';
+        }
+        if (issueType.indexOf('法定代表人') >= 0) {
+            return '法定代表人';
+        }
+        return '法人股东';
+    }
+
+    function isSameControllerOrBeneficiaryIssue(issueType) {
+        if (issueType.indexOf('实际控制人') >= 0) {
+            return true;
+        }
+        return issueType.indexOf('实际受益人') >= 0;
+    }
+
+    function getControllerOrBeneficiaryLabel(issueType) {
+        if (issueType.indexOf('实际受益人') >= 0) {
+            return '实际受益人';
+        }
+        return '实际控制人';
+    }
+
+    function buildControllerOrBeneficiaryLines(section, companies, subject) {
+        var lines = [];
+        var index = 0;
+        for (index = 0; index < companies.length; index += 1) {
+            lines.push(buildControllerOrBeneficiaryLine(section, companies[index], subject));
+        }
+        return lines;
+    }
+
+    function buildControllerOrBeneficiaryLine(section, companyName, subject) {
+        return companyName + ' ← 实际控制 ← ' + subject;
+    }
+
+    function buildPersonnelLines(companies, subject) {
+        var lines = [];
+        var index = 0;
+        for (index = 0; index < companies.length; index += 1) {
+            lines.push(companies[index] + ' <— 历史任职董事长 — ' + subject);
+        }
+        return lines;
+    }
+
+    function joinCompanyNamesBy(list, separator) {
+        var names = [];
+        var index = 0;
+        var joined = '';
+        for (index = 0; index < list.length; index += 1) {
+            if (list[index] && !hasName(names, list[index])) {
+                names.push(list[index]);
+            }
+        }
+        if (names.length === 0) {
+            return '相关单位';
+        }
+        if (separator === '和' && names.length > 2) {
+            for (index = 0; index < names.length; index += 1) {
+                if (index === 0) {
+                    joined = names[index];
+                } else if (index === names.length - 1) {
+                    joined += '和' + names[index];
+                } else {
+                    joined += '、' + names[index];
+                }
+            }
+            return joined;
+        }
+        return names.join(separator);
+    }
+
+    function buildOverviewIssueTable(section, issues) {
+        var htmlParts = [];
+        var index = 0;
+        htmlParts.push('<section class="overview-issues"><div class="overview-issues__head"><h3>' + buildUiIcon('file') + '风险问题清单</h3><span>明细化展现穿透分析路径与证据链摘要</span></div>');
+        if (issues.length === 0) {
+            htmlParts.push('<div class="overview-issues__empty">未发现任何股权异常明细。</div></section>');
+            return htmlParts.join('');
+        }
+        htmlParts.push('<div class="table-wrap"><table class="overview-issues-table"><thead><tr><th>问题类型</th><th>风险等级</th><th>涉及单位</th><th>关联路径</th><th>证据摘要</th><th>操作</th></tr></thead><tbody>');
+        for (index = 0; index < issues.length; index += 1) {
+            var item = issues[index];
+            var popupType = isContactIssue(item.issueType || '') ? 'contact' : 'topology';
+            var popupTitle = popupType === 'contact' ? (item.issueType || '联系方式关联排查') : '股权与人员关系排查 - ' + (item.issueType || '关联风险');
+            var companyText = joinNames(item.companies || []);
+            var popupAttributes = buildOverviewIssueActionAttributes(section, item, popupType, popupTitle, companyText);
+            var displayData = buildIssueDisplayData(item, section);
+            var renderData = {};
+            var rowHtml = '';
+
+            renderData.issueType = escapeHtml(item.issueType || '');
+            renderData.levelBadge = buildShortLevelBadge(item.riskLevel);
+            renderData.companies = escapeHtml(companyText);
+            renderData.relationPath = displayData.relationPathHtml;
+            renderData.evidenceSummary = escapeHtml(displayData.evidenceSummary);
+            renderData.popupAttributes = popupAttributes;
+            renderData.searchIcon = buildUiIcon('search');
+            rowHtml = renderTemplate('issue-row-temp', renderData);
+            htmlParts.push(rowHtml);
+        }
+        htmlParts.push('</tbody></table></div></section>');
+        return htmlParts.join('');
+    }
+
+    function buildShortLevelBadge(level) {
+        if (level === 'high') {
+            return '<span class="short-risk short-risk--high">高</span>';
+        }
+        if (level === 'medium') {
+            return '<span class="short-risk short-risk--medium">中</span>';
+        }
+        return '<span class="short-risk short-risk--low">低</span>';
+    }
+
+    function buildUiIcon(name) {
+        if (name === 'building') {
+            return '<svg viewBox="0 0 24 24"><path d="M4 21V5l8-3 8 3v16"></path><path d="M8 21v-5h8v5M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01"></path></svg>';
+        }
+        if (name === 'users') {
+            return '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>';
+        }
+        if (name === 'layers') {
+            return '<svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>';
+        }
+        if (name === 'alert' || name === 'warning') {
+            return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 17h.01"></path></svg>';
+        }
+        if (name === 'shield') {
+            return '<svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.4 8.6-8 9-4.6-.4-8-4-8-9V7l8-4z"></path><path d="M12 8v5M12 16h.01"></path></svg>';
+        }
+        if (name === 'tag') {
+            return '<svg viewBox="0 0 24 24"><path d="M20 13l-7 7-10-10V3h7l10 10z"></path><circle cx="7.5" cy="7.5" r="1"></circle></svg>';
+        }
+        if (name === 'file') {
+            return '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6M8 13h8M8 17h8"></path></svg>';
+        }
+        if (name === 'clock') {
+            return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>';
+        }
+        if (name === 'calendar') {
+            return '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>';
+        }
+        if (name === 'pie') {
+            return '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9v9z"></path><path d="M12 3a9 9 0 0 1 9 9h-9z"></path></svg>';
+        }
+        return '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>';
+    }
+
+    function isContactIssue(issueType) {
+        return /电话|地址|邮箱|联系/.test(issueType || '');
+    }
+
+    function buildOverviewIssueActionAttributes(section, item, popupType, popupTitle, companyText) {
+        if (popupType === 'contact') {
+            return buildPopupAttributes('contact', popupTitle, companyText, item.companies || []);
+        }
+        return buildKnowledgeGraphActionAttributes(section, item, companyText);
+    }
+
+    function buildKnowledgeGraphActionAttributes(section, item, companyText) {
+        var targetUrl = buildKnowledgeGraphIssueUrl(section, item, companyText);
+        return 'data-open-knowledgegraph="true" data-knowledgegraph-url="' + escapeHtml(targetUrl) + '"';
+    }
+
+    function buildKnowledgeGraphIssueUrl(section, item, companyText) {
+        return buildKnowledgeGraphFrameUrl(section)
+            + '&issueType=' + encodeURIComponent(item.issueType || '')
+            + '&companies=' + encodeURIComponent(companyText || '');
+    }
+
+    function buildPopupAttributes(type, title, subtitle, companies) {
+        return 'data-open-popup="' + escapeHtml(type) + '" data-popup-title="' + escapeHtml(title) + '" data-popup-subtitle="' + escapeHtml(subtitle) + '" data-popup-companies="' + encodeURIComponent((companies || []).join('\u001f')) + '"';
+    }
+
+    function buildDetailPopupHtml(section, popup) {
+        if (popup.type === 'contact') {
+            return buildContactPopupHtml(section, popup.companies);
+        }
+        if (popup.type === 'enterprise') {
+            return buildEnterpriseDetailPopupHtml(section, popup.companies);
+        }
+        var issues = getPopupIssues(section, popup.companies);
+        var companyNames = getPopupCompanyNames(section, popup.companies, issues);
+        if (issues.length === 0) {
+            return buildOwnershipPopupHtml(section, companyNames);
+        }
+        var graphWidth = Math.max(960, companyNames.length * 230 + 180);
+        var issueNodes = buildIssueNodes(issues, graphWidth);
+        var companyNodes = buildCompanyNodes(section, companyNames, graphWidth);
+        var edges = buildGraphEdges(issues, issueNodes, companyNodes);
+        var htmlParts = [];
+        htmlParts.push('<div class="penetration-summary"><strong>股权与人员关联穿透结果</strong><span>根据当前风险问题与企业档案生成，独立于“单位关系图谱”页签展示。</span></div>');
+        htmlParts.push('<div class="graph-card penetration-graph"><div class="graph-toolbar"><h3 class="card-title">合规穿透与关联拓扑图谱</h3><div class="graph-hint">聚焦当前查看对象及其关联风险</div></div>');
+        htmlParts.push('<div class="graph-canvas"><div class="graph-inner" style="width:' + graphWidth + 'px">');
+        htmlParts.push(buildGraphSvg(edges, graphWidth));
+        htmlParts.push(buildGraphNodes(issueNodes, 'issue'));
+        htmlParts.push(buildGraphNodes(companyNodes, 'company'));
+        htmlParts.push('</div></div></div>');
+        return htmlParts.join('');
+    }
+
+    function getPopupIssues(section, selectedCompanies) {
+        var issues = section.equityIssueList || [];
+        if (!selectedCompanies || selectedCompanies.length === 0) {
+            return issues;
+        }
+        var result = [];
+        var issueIndex = 0;
+        for (issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
+            var companies = issues[issueIndex].companies || [];
+            var companyIndex = 0;
+            for (companyIndex = 0; companyIndex < companies.length; companyIndex += 1) {
+                if (hasName(selectedCompanies, companies[companyIndex])) {
+                    result.push(issues[issueIndex]);
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+
+    function getPopupCompanyNames(section, selectedCompanies, issues) {
+        var names = [];
+        var index = 0;
+        for (index = 0; index < selectedCompanies.length; index += 1) {
+            if (selectedCompanies[index] && !hasName(names, selectedCompanies[index])) {
+                names.push(selectedCompanies[index]);
+            }
+        }
+        for (index = 0; index < issues.length; index += 1) {
+            var issueCompanies = issues[index].companies || [];
+            var companyIndex = 0;
+            for (companyIndex = 0; companyIndex < issueCompanies.length; companyIndex += 1) {
+                if (!hasName(names, issueCompanies[companyIndex])) {
+                    names.push(issueCompanies[companyIndex]);
+                }
+            }
+        }
+        if (names.length === 0) {
+            names = getProblemCompanyNames(section);
+        }
+        return names;
+    }
+
+    function buildOwnershipPopupHtml(section, companyNames) {
+        if (companyNames.length === 0) {
+            return buildEmptyState('暂无股权穿透数据', '当前查看对象未关联到可用的企业股东档案。');
+        }
+        var htmlParts = ['<div class="ownership-grid">'];
+        var index = 0;
+        for (index = 0; index < companyNames.length; index += 1) {
+            var company = findCompanyByName(section, companyNames[index]);
+            if (!company) {
+                continue;
+            }
+            var shareholder = (company.shareholders || [])[0] || {};
+            var penetrationPath = getCompany3LayerPath(company);
+            var penetrationParts = penetrationPath.split('->[全资100%]->');
+            var renderData = {};
+            var chainHtml = '';
+
+            renderData.ownerName = escapeHtml(shareholder.name || company.legalPerson || '未登记');
+            renderData.ownerRatio = escapeHtml(shareholder.ratio || '');
+            renderData.companyName = escapeHtml(company.name || '');
+            renderData.legalPerson = escapeHtml(company.legalPerson || '未登记');
+            renderData.childPath = escapeHtml(penetrationParts[1] || '暂无下游企业');
+            chainHtml = renderTemplate('ownership-chain-temp', renderData);
+            htmlParts.push(chainHtml);
+        }
+        htmlParts.push('</div>');
+        return htmlParts.join('');
+    }
+
+    function buildContactPopupHtml(section, companyNames) {
+        var companies = [];
+        var index = 0;
+        for (index = 0; index < companyNames.length; index += 1) {
+            var company = findCompanyByName(section, companyNames[index]);
+            if (company) {
+                companies.push(company);
+            }
+        }
+        if (companies.length === 0) {
+            return buildEmptyState('暂无联系方式关联记录', '当前问题未关联到可展示的单位联系方式。');
+        }
+        var htmlParts = ['<div class="contact-popup-card"><h3>投标单位联系方式与关联排查详情</h3><div class="table-wrap"><table><thead><tr><th>投标单位</th><th>注册电话</th><th>注册邮箱</th><th>注册地址</th></tr></thead><tbody>'];
+        for (index = 0; index < companies.length; index += 1) {
+            var renderData = {};
+            var rowHtml = '';
+
+            renderData.name = escapeHtml(companies[index].name || '');
+            renderData.phone = escapeHtml(companies[index].phone || '未登记');
+            renderData.email = escapeHtml(companies[index].email || '未登记');
+            renderData.address = escapeHtml(companies[index].address || '未登记');
+            rowHtml = renderTemplate('contact-row-temp', renderData);
+            htmlParts.push(rowHtml);
+        }
+        htmlParts.push('</tbody></table></div></div>');
+        return htmlParts.join('');
+    }
+
+    function buildIssueMatrixHtml(section) {
+        var groups = filterMatrixGroups(buildMatrixGroups(section));
+        if (section.riskLevel === 'low') {
+            return buildEmptyState('未发现单位关联风险', '当前标段按股权、人员和主体联系规则扫描后，未形成风险问题清单。');
+        }
+        var htmlParts = [];
+        var groupIndex = 0;
+        var hasFilters = matrixCompanySearch || matrixCategorySearch !== 'all';
+        htmlParts.push('<div class="matrix-card">');
+        htmlParts.push('<div class="matrix-toolbar"><div class="matrix-toolbar__filters">');
+        htmlParts.push('<label class="matrix-search"><span>' + buildUiIcon('search') + '</span><input id="matrixCompanySearch" type="text" value="' + escapeHtml(matrixCompanySearch) + '" placeholder="搜索单位名称..."></label>');
+        htmlParts.push('<select id="matrixCategorySearch" class="matrix-filter-select" aria-label="规则分类">' + buildMatrixCategoryOptions() + '</select>');
+        if (hasFilters) {
+            htmlParts.push('<button type="button" class="matrix-reset" data-matrix-reset>↻ 重置筛选</button>');
+        }
+        htmlParts.push('</div><div class="matrix-count">包含排查记录: <strong>' + groups.length + '</strong> 组单位</div></div>');
+        htmlParts.push('<div class="table-wrap"><table class="matrix-table"><thead><tr><th>关联单位组</th><th>关联类型</th><th>具体情况</th><th>风险状态</th><th>查看详情</th></tr></thead><tbody>');
+        if (groups.length === 0) {
+            htmlParts.push('<tr><td colspan="5"><div class="matrix-empty"><strong>未检索到匹配的单位风险记录</strong><span>尝试清除单位名称搜索或重置规则分类筛选条件。</span><button type="button" data-matrix-reset>清除搜索与筛选</button></div></td></tr>');
+        }
+        for (groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+            htmlParts.push(buildMatrixGroupRows(groups[groupIndex]));
+        }
+        htmlParts.push('</tbody></table></div></div>');
+        return htmlParts.join('');
+    }
+
+    function buildMatrixGroups(section) {
+        if (section.riskLevel === 'low') {
+            return [];
+        }
+        var company0 = getMatrixCompanyName(section, 0, '中科城感知新技术有限公司');
+        var company1 = getMatrixCompanyName(section, 1, '感知未来信息科技（北京）有限公司');
+        var company2 = getMatrixCompanyName(section, 2, '北京中科国控智能系统集团有限公司');
+        var company3 = getMatrixCompanyName(section, 3, '华数物联科技有限公司');
+        return [
+            buildMatrixGroup('matrix-grp-1', [company0, company1], '高危 (1)', [
+                buildMatrixRule('cat-equity', 'cat-equity-direct', '股权关系', '直接控股', '单位之间存在直接控股关系（同一母公司「' + company2 + '」）', 'high'),
+                buildMatrixRule('cat-contact', 'cat-contact-annual-report', '主体联系', '年报信息审查', '单位之间年报(含历史年报)出现相同邮箱/相同地址/相同电话(010-88481234)', 'medium')
+            ]),
+            buildMatrixGroup('matrix-grp-2', [company1, company2], '高危 (2)', [
+                buildMatrixRule('cat-personnel', 'cat-personnel-main', '人员关系', '主要人员审查', '单位之间存在历史董监高、历史股东关联关系', 'high'),
+                buildMatrixRule('cat-personnel', 'cat-personnel-controller', '人员关系', '实际控制人审查', '单位之间存在共同实际控制人（自然人张建国穿透控制）', 'high')
+            ]),
+            buildMatrixGroup('matrix-grp-3', [company2, company3], '高危 (2)', [
+                buildMatrixRule('cat-equity', 'cat-equity-indirect', '股权关系', '间接控股', '单位之间存在间接控股/参股等股权相关的关联关系', 'high'),
+                buildMatrixRule('cat-personnel', 'cat-personnel-legal-shareholder', '人员关系', '法人股东审查', '单位之间存在共同的法人股东，股东关系向上追溯3层(股权占比为 1/3 的股东)', 'high'),
+                buildMatrixRule('cat-contact', 'cat-contact-address', '主体联系', '注册地址审查', '单位之间存在相同的注册地址（综合办公大楼同层室）', 'medium')
+            ]),
+            buildMatrixGroup('matrix-grp-4', [company0, company3], '高危 (3)', [
+                buildMatrixRule('cat-personnel', 'cat-personnel-legal-rep', '人员关系', '法定代表人审查', '单位之间存在共同法定代表人（李国强）', 'high'),
+                buildMatrixRule('cat-personnel', 'cat-personnel-beneficiary', '人员关系', '实际受益人审查', '单位之间存在共同实际受益人', 'high'),
+                buildMatrixRule('cat-contact', 'cat-contact-phone', '主体联系', '注册电话审查', '单位之间存在相同的注册电话', 'medium')
+            ])
+        ];
+    }
+
+    function getMatrixCompanyName(section, index, fallback) {
+        var company = (section.companies || [])[index];
+        return company && company.name ? company.name : fallback;
+    }
+
+    function buildMatrixRule(mainCatId, subCatId, typeTag, ruleTitle, description, statusType) {
+        return {
+            mainCatId: mainCatId,
+            subCatId: subCatId,
+            typeTag: typeTag,
+            ruleTitle: ruleTitle,
+            description: description,
+            statusType: statusType,
+            statusText: statusType === 'high' ? '• 高危红线' : '• 中危警示'
+        };
+    }
+
+    function buildMatrixGroup(id, companies, overallRiskText, rules) {
+        return {
+            id: id,
+            companies: companies,
+            overallRiskText: overallRiskText,
+            rules: rules,
+            triggerCount: rules.length
+        };
+    }
+
+    function filterMatrixGroups(groups) {
+        var keyword = String(matrixCompanySearch || '').trim().toLowerCase();
+        var result = [];
+        var groupIndex = 0;
+        for (groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+            var group = groups[groupIndex];
+            var companyMatch = !keyword;
+            var companyIndex = 0;
+            for (companyIndex = 0; companyIndex < group.companies.length; companyIndex += 1) {
+                if (String(group.companies[companyIndex]).toLowerCase().indexOf(keyword) >= 0) {
+                    companyMatch = true;
+                }
+            }
+            if (!companyMatch) {
+                continue;
+            }
+            var matchingRules = [];
+            var ruleIndex = 0;
+            for (ruleIndex = 0; ruleIndex < group.rules.length; ruleIndex += 1) {
+                var rule = group.rules[ruleIndex];
+                if (matrixCategorySearch === 'all' || rule.mainCatId === matrixCategorySearch || rule.subCatId === matrixCategorySearch) {
+                    matchingRules.push(rule);
+                }
+            }
+            if (matchingRules.length > 0) {
+                result.push(buildMatrixGroup(group.id, group.companies, group.overallRiskText, matchingRules));
+            }
+        }
+        return result;
+    }
+
+    function buildMatrixCategoryOptions() {
+        var options = [
+            ['all', '规则分类: 全部'],
+            ['cat-equity', '股权关系维度'],
+            ['cat-equity-direct', '  ├─ 直接控股'],
+            ['cat-equity-indirect', '  ├─ 间接控股'],
+            ['cat-personnel', '人员关系维度'],
+            ['cat-personnel-main', '  ├─ 主要人员审查'],
+            ['cat-personnel-controller', '  ├─ 实际控制人审查'],
+            ['cat-personnel-legal-shareholder', '  ├─ 法人股东审查'],
+            ['cat-personnel-legal-rep', '  ├─ 法定代表人审查'],
+            ['cat-personnel-beneficiary', '  ├─ 实际受益人审查'],
+            ['cat-contact', '主体联系维度'],
+            ['cat-contact-annual-report', '  ├─ 年报信息审查'],
+            ['cat-contact-address', '  ├─ 注册地址审查'],
+            ['cat-contact-phone', '  ├─ 注册电话审查']
+        ];
+        var htmlParts = [];
+        var index = 0;
+        for (index = 0; index < options.length; index += 1) {
+            var selected = options[index][0] === matrixCategorySearch ? ' selected' : '';
+            htmlParts.push('<option value="' + options[index][0] + '"' + selected + '>' + options[index][1] + '</option>');
+        }
+        return htmlParts.join('');
+    }
+
+    function buildMatrixGroupRows(group) {
+        var isExpanded = expandedMatrixGroups[group.id] !== false;
+        var rowSpan = 1 + (isExpanded ? group.rules.length : 0);
+        var htmlParts = [];
+        var companyHtmlParts = [];
+        var badgeHtmlParts = [];
+        var companyIndex = 0;
+        var ruleIndex = 0;
+        for (companyIndex = 0; companyIndex < group.companies.length; companyIndex += 1) {
+            companyHtmlParts.push('<div class="matrix-company-name"><span></span>' + escapeHtml(group.companies[companyIndex]) + '</div>');
+        }
+        for (ruleIndex = 0; ruleIndex < group.rules.length; ruleIndex += 1) {
+            var summaryRule = group.rules[ruleIndex];
+            var summaryRuleClass = getMatrixRuleClass(summaryRule);
+            var summaryRuleText = escapeHtml(summaryRule.typeTag + ' - ' + summaryRule.ruleTitle);
+            badgeHtmlParts.push('<span class="matrix-rule-badge matrix-rule-badge--' + summaryRuleClass + '">' + summaryRuleText + '</span>');
+        }
+        var groupSubtitle = group.companies.join(' 与 ');
+        var summaryPopupAttributes = buildPopupAttributes('topology', '合规穿透与关联拓扑图谱', groupSubtitle, group.companies);
+        var summaryRenderData = {};
+        var summaryRowHtml = '';
+
+        summaryRenderData.rowSpan = rowSpan;
+        summaryRenderData.companyHtml = companyHtmlParts.join('');
+        summaryRenderData.groupId = escapeHtml(group.id);
+        summaryRenderData.expandedClass = isExpanded ? ' is-expanded' : '';
+        summaryRenderData.toggleTitle = isExpanded ? '折叠明细' : '展开明细';
+        summaryRenderData.triggerCount = group.triggerCount;
+        summaryRenderData.badgeHtml = badgeHtmlParts.join('');
+        summaryRenderData.riskText = escapeHtml(group.overallRiskText);
+        summaryRenderData.popupAttributes = summaryPopupAttributes;
+        summaryRenderData.searchIcon = buildUiIcon('search');
+        summaryRowHtml = renderTemplate('matrix-summary-row-temp', summaryRenderData);
+        htmlParts.push(summaryRowHtml);
+
+        if (isExpanded) {
+            for (ruleIndex = 0; ruleIndex < group.rules.length; ruleIndex += 1) {
+                var rule = group.rules[ruleIndex];
+                var rulePopupType = rule.typeTag === '主体联系' ? 'contact' : 'topology';
+                var rulePopupTitle = rulePopupType === 'contact' ? '联系方式关联排查 - ' + rule.ruleTitle : '股权与人员关系排查 - ' + rule.ruleTitle;
+                var rulePopupAttributes = buildPopupAttributes(rulePopupType, rulePopupTitle, groupSubtitle, group.companies);
+                var ruleRenderData = {};
+                var ruleRowHtml = '';
+
+                ruleRenderData.ruleClass = getMatrixRuleClass(rule);
+                ruleRenderData.typeTag = escapeHtml(rule.typeTag);
+                ruleRenderData.ruleTitle = escapeHtml(rule.ruleTitle);
+                ruleRenderData.description = escapeHtml(rule.description);
+                ruleRenderData.statusType = escapeHtml(rule.statusType);
+                ruleRenderData.statusText = escapeHtml(rule.statusText);
+                ruleRenderData.popupAttributes = rulePopupAttributes;
+                ruleRenderData.searchIcon = buildUiIcon('search');
+                ruleRowHtml = renderTemplate('matrix-rule-row-temp', ruleRenderData);
+                htmlParts.push(ruleRowHtml);
+            }
+        }
+        return htmlParts.join('');
+    }
+
+    function getMatrixRuleClass(rule) {
+        if (rule.typeTag === '股权关系') {
+            return 'equity';
+        }
+        if (rule.typeTag === '人员关系') {
+            return 'personnel';
+        }
+        return 'contact';
+    }
+
+    function buildTopologyHtml(section) {
+        return '<div class="knowledgegraph-frame-card">'
+            + '<iframe class="knowledgegraph-frame" title="单位关系图谱" src="' + buildKnowledgeGraphFrameUrl(section) + '"></iframe>'
+            + '</div>';
+    }
+
+    function buildKnowledgeGraphFrameUrl(section) {
+        return './frame/pages/knowledgegraph/zstpexactsearchpopup.html'
+            + '?sectionCode=' + encodeURIComponent(section.code || '')
+            + '&sectionName=' + encodeURIComponent(section.name || '');
+    }
+
+    function buildCompanyHtml(section) {
+        var companies = [];
+        var keyword = String(companySearchKeyword || '').trim().toLowerCase();
+        var index = 0;
+        for (index = 0; index < section.companies.length; index += 1) {
+            var company = section.companies[index];
+            if (isCompanyProfileMatched(company, keyword)) {
+                companies.push(company);
+            }
+        }
+        var htmlParts = [];
+        htmlParts.push('<div class="profile-card">');
+        htmlParts.push('<div class="profile-toolbar"><label class="profile-search"><span>' + buildUiIcon('search') + '</span><input id="companySearchKeyword" type="text" value="' + escapeHtml(companySearchKeyword) + '" placeholder="搜索单位名称..."></label>');
+        if (companySearchKeyword) {
+            htmlParts.push('<button type="button" class="profile-search-reset" data-company-reset title="清除搜索">×</button>');
+        }
+        htmlParts.push('<div class="profile-count">包含排查记录: <strong>' + companies.length + '</strong> 家单位</div></div>');
+        htmlParts.push('<div class="profile-table-wrap"><table class="profile-table"><thead><tr><th>单位名称</th><th>法定代表人</th><th>注册资本</th><th>社会信用代码</th><th>成立日期</th><th>电话</th><th>邮箱</th><th>地址</th><th>操作</th></tr></thead><tbody>');
+        if (companies.length === 0) {
+            htmlParts.push('<tr><td colspan="9" class="profile-empty">未匹配到符合搜索条件的投标单位</td></tr>');
+        }
+        for (index = 0; index < companies.length; index += 1) {
+            var item = companies[index];
+            var popupTitle = '企业档案详情 - ' + (item.name || '');
+            var popupCompanies = [item.name || ''];
+            var popupAttributes = buildPopupAttributes('enterprise', popupTitle, item.name || '', popupCompanies);
+            var renderData = {};
+            var rowHtml = '';
+
+            renderData.name = escapeHtml(item.name || '');
+            renderData.legalPerson = escapeHtml(item.legalPerson || '未登记');
+            renderData.registeredCapital = escapeHtml(item.registeredCapital || '未登记');
+            renderData.creditCode = escapeHtml(getEnterpriseCreditCode(item));
+            renderData.establishDate = escapeHtml(getEnterpriseEstablishDate(item));
+            renderData.phone = escapeHtml(item.phone || '未登记');
+            renderData.email = escapeHtml(item.email || '未登记');
+            renderData.address = escapeHtml(item.address || '未登记');
+            renderData.popupAttributes = popupAttributes;
+            renderData.searchIcon = buildUiIcon('search');
+            rowHtml = renderTemplate('company-row-temp', renderData);
+            htmlParts.push(rowHtml);
+        }
+        htmlParts.push('</tbody></table></div></div>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterpriseDetailPopupHtml(section, companyNames) {
+        var company = findCompanyByName(section, (companyNames || [])[0] || '');
+        if (!company) {
+            return buildEmptyState('暂无企业详情数据', '当前投标单位未匹配到可展示的企业档案。');
+        }
+        var logoText = getEnterpriseLogoText(company.name || '');
+        var legalPerson = company.legalPerson || '-';
+        var capital = company.registeredCapital || '-';
+        var phone = company.phone || '-';
+        var email = company.email || '-';
+        var address = company.address || '-';
+        var industry = getEnterpriseIndustry(company);
+        var type = getEnterpriseType(company);
+        var creditCode = getEnterpriseCreditCode(company);
+        var establishDate = getEnterpriseEstablishDate(company);
+        var htmlParts = ['<div class="enterprise-detail-page">'];
+
+        htmlParts.push('<section class="enterprise-hero">');
+        htmlParts.push('<div class="enterprise-brand-card"><span>' + escapeHtml(logoText.first) + '</span><span>' + escapeHtml(logoText.second) + '</span></div>');
+        htmlParts.push('<div class="enterprise-hero-main">');
+        htmlParts.push('<div class="enterprise-title-row"><h2>' + escapeHtml(company.name || '企业名称未登记') + '</h2><span class="enterprise-status">存续（在营、开业、在册）</span><span class="enterprise-ai-badge">AI深度解读</span></div>');
+        htmlParts.push('<div class="enterprise-tag-row"><span>小型企业</span><span>地方国企</span><div class="enterprise-update-row">' + buildUiIcon('clock') + '<span>数据更新： ' + escapeHtml(getEnterpriseUpdateDate(company)) + '</span><button type="button">更新</button></div></div>');
+        htmlParts.push('</div>');
+        htmlParts.push('<div class="enterprise-summary-grid">');
+        htmlParts.push('<div>' + buildEnterpriseSummaryField('统一社会信用代码', creditCode) + buildEnterpriseSummaryField('法定代表人', legalPerson, true) + buildEnterpriseSummaryField('注册资本', capital) + buildEnterpriseSummaryField('成立日期', establishDate) + '</div>');
+        htmlParts.push('<div>' + buildEnterpriseSummaryField('电话', phone) + buildEnterpriseSummaryField('邮箱', email) + buildEnterpriseSummaryField('官网', getEnterpriseWebsite(company), true) + buildEnterpriseSummaryField('地址', address) + '</div>');
+        htmlParts.push('<div>' + buildEnterpriseSummaryField('所处行业', industry) + buildEnterpriseSummaryField('企业类型', type) + buildEnterpriseSummaryField('员工人数', getEnterpriseEmployeeCount(company)) + buildEnterpriseSummaryField('经营范围', getEnterpriseScope(company)) + '</div>');
+        htmlParts.push('<p class="enterprise-description">企业简介：' + escapeHtml(company.name || '该企业') + '是一家从事工程建设、项目实施或配套服务的企业，当前档案信息来源于投标单位画像 mock 数据，后续可接入后台企业档案接口补全。</p>');
+        htmlParts.push('</div></section>');
+        htmlParts.push(buildEnterpriseMainTabs(selectedEnterpriseMainTab));
+        if (selectedEnterpriseMainTab === '基本信息') {
+            htmlParts.push(buildEnterpriseSubTabs(selectedEnterpriseSubTab));
+            htmlParts.push(buildEnterpriseActiveSubSectionHtml(company, {
+                creditCode: creditCode,
+                legalPerson: legalPerson,
+                capital: capital,
+                establishDate: establishDate,
+                address: address,
+                industry: industry,
+                type: type
+            }));
+        } else if (selectedEnterpriseMainTab === '知识产权') {
+            htmlParts.push(buildEnterpriseIntellectualSectionHtml(company));
+        } else {
+            htmlParts.push(buildEmptyState(selectedEnterpriseMainTab + '待接入', '当前静态页面已预留模块位置，后续可接入企业档案接口补全。'));
+        }
+        htmlParts.push('</div>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterpriseSummaryField(label, value, isLink) {
+        var valueClass = isLink ? ' class="enterprise-link"' : '';
+        return '<div class="enterprise-summary-field"><span>' + escapeHtml(label) + '：</span><strong' + valueClass + '>' + escapeHtml(value || '-') + '</strong></div>';
+    }
+
+    function buildEnterpriseMainTabs(activeName) {
+        var tabs = [
+            ['基本信息', '', activeName === '基本信息'],
+            ['企业图谱', '', activeName === '企业图谱'],
+            ['风险情况', '', activeName === '风险情况'],
+            ['知识产权', '', activeName === '知识产权']
+        ];
+        var htmlParts = ['<nav class="enterprise-tabs-main">'];
+        var index = 0;
+        for (index = 0; index < tabs.length; index += 1) {
+            var activeClass = tabs[index][2] ? ' is-active' : '';
+            htmlParts.push('<button type="button" class="' + activeClass + '" data-enterprise-main-tab="' + escapeHtml(tabs[index][0]) + '">' + escapeHtml(tabs[index][0]) + '</button>');
+        }
+        htmlParts.push('</nav>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterpriseSubTabs(activeName) {
+        var tabs = [
+            ['工商信息', '', activeName === '工商信息'],
+            ['股东信息', '', activeName === '股东信息'],
+            ['主要人员', '', activeName === '主要人员'],
+            ['企业年报', '', false],
+            ['变更记录', '', false],
+            ['对外投资', '', false]
+        ];
+        var htmlParts = ['<nav class="enterprise-tabs-sub">'];
+        var index = 0;
+        for (index = 0; index < tabs.length; index += 1) {
+            var activeClass = tabs[index][2] ? ' is-active' : '';
+            var disabledClass = tabs[index][0] === '工商信息' || tabs[index][0] === '股东信息' || tabs[index][0] === '主要人员' ? '' : ' is-disabled';
+            htmlParts.push('<button type="button" class="' + activeClass + disabledClass + '" data-enterprise-sub-tab="' + escapeHtml(tabs[index][0]) + '">' + escapeHtml(tabs[index][0]) + '</button>');
+        }
+        htmlParts.push('</nav>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterpriseTabs(className, tabs) {
+        var htmlParts = ['<nav class="' + className + '">'];
+        var index = 0;
+        for (index = 0; index < tabs.length; index += 1) {
+            var activeClass = tabs[index][2] ? ' is-active' : '';
+            var countText = tabs[index][1] ? '<em>' + escapeHtml(tabs[index][1]) + '</em>' : '';
+            htmlParts.push('<button type="button" class="' + activeClass + '">' + escapeHtml(tabs[index][0]) + countText + '</button>');
+        }
+        htmlParts.push('</nav>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterpriseActiveSubSectionHtml(company, data) {
+        if (selectedEnterpriseSubTab === '股东信息') {
+            return buildEnterpriseShareholderSectionHtml(company);
+        }
+        if (selectedEnterpriseSubTab === '主要人员') {
+            return buildEnterprisePersonnelSectionHtml(company);
+        }
+        return buildEnterpriseRegistrationSectionHtml(company, data);
+    }
+
+    function buildEnterpriseRegistrationSectionHtml(company, data) {
+        var htmlParts = [];
+        htmlParts.push('<section class="enterprise-reg-card"><div class="enterprise-section-head"><h3>工商信息</h3><button type="button" class="enterprise-download">下载数据</button></div>');
+        htmlParts.push('<table class="enterprise-reg-table"><tbody>');
+        htmlParts.push(buildEnterpriseTableRow('统一社会信用代码', data.creditCode, '企业名称', company.name || '-'));
+        htmlParts.push(buildEnterpriseTableRow('法定代表人', data.legalPerson, '登记状态', '存续（在营、开业、在册）', '成立日期', data.establishDate));
+        htmlParts.push(buildEnterpriseTableRow('注册资本', data.capital, '实缴资本', getEnterprisePaidCapital(data.capital)));
+        htmlParts.push(buildEnterpriseTableRow('组织机构代码', getEnterpriseOrgCode(data.creditCode), '工商注册号', getEnterpriseRegisterNo(data.creditCode), '纳税人识别号', data.creditCode));
+        htmlParts.push(buildEnterpriseTableRow('企业类型', data.type, '营业期限', data.establishDate + '至无固定期限', '纳税人资质', '一般纳税人'));
+        htmlParts.push(buildEnterpriseTableRow('人员规模', '-', '参保人数', '-', '核准日期', getEnterpriseApproveDate()));
+        htmlParts.push(buildEnterpriseTableRow('所属地区', getEnterpriseArea(data.address), '登记机关', getEnterpriseRegistry(data.address), '进出口企业代码', '-'));
+        htmlParts.push(buildEnterpriseTableRow('国标行业', data.industry, '英文名', '-'));
+        htmlParts.push(buildEnterpriseTableRow('行业代码', getEnterpriseIndustryCode(data.industry), '注册地址经纬度', getEnterpriseCoordinate(data.address)));
+        htmlParts.push(buildEnterpriseTableRow('注册地址', data.address));
+        htmlParts.push(buildEnterpriseTableRow('通信地址', data.address));
+        htmlParts.push('</tbody></table></section>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterpriseShareholderSectionHtml(company) {
+        var currentList = getEnterpriseShareholderList(company, false);
+        var historyList = getEnterpriseShareholderList(company, true);
+        var activeList = selectedEnterpriseShareholderHistory ? historyList : currentList;
+        return '<section class="enterprise-shareholder-card">'
+            + '<h3>股东信息</h3>'
+            + '<div class="enterprise-shareholder-head">'
+            + '<div class="enterprise-shareholder-switch">'
+            + '<button type="button" class="' + (selectedEnterpriseShareholderHistory ? '' : 'is-active') + '" data-enterprise-shareholder-history="false">股东信息 (<span>' + currentList.length + '</span>)</button>'
+            + '<button type="button" class="' + (selectedEnterpriseShareholderHistory ? 'is-active' : '') + '" data-enterprise-shareholder-history="true">历史股东信息 (<span>' + historyList.length + '</span>)</button>'
+            + '</div>'
+            + '<button type="button" class="enterprise-shareholder-filter">持股比例<span></span></button>'
+            + '</div>'
+            + buildEnterpriseShareholderTableHtml(activeList)
+            + '</section>';
+    }
+
+    function buildEnterpriseShareholderTableHtml(shareholderList) {
+        var htmlParts = ['<table class="enterprise-shareholder-table"><thead><tr><th>序号</th><th>股东</th><th>持股比例</th><th>认缴出资额</th><th>实缴出资额</th><th>认缴出资日期</th></tr></thead><tbody>'];
+        var index = 0;
+        for (index = 0; index < shareholderList.length; index += 1) {
+            htmlParts.push('<tr><td>' + (index + 1) + '</td><td><span class="enterprise-shareholder-name">' + escapeHtml(shareholderList[index].name) + '</span></td><td>' + escapeHtml(shareholderList[index].ratio) + '</td><td>' + escapeHtml(shareholderList[index].subscribedAmount) + '</td><td>' + escapeHtml(shareholderList[index].paidAmount) + '</td><td>' + escapeHtml(shareholderList[index].subscribedDate) + '</td></tr>');
+        }
+        htmlParts.push('</tbody></table>');
+        return htmlParts.join('');
+    }
+
+    function getEnterpriseShareholderList(company, isHistory) {
+        var sourceList = getEnterpriseShareholderSourceList(company);
+        var result = [];
+        var index = 0;
+        for (index = 0; index < sourceList.length; index += 1) {
+            var shareholder = sourceList[index];
+            if (shareholder.isHistory === isHistory) {
+                result.push(shareholder);
+            }
+        }
+        return result;
+    }
+
+    function getEnterpriseShareholderSourceList(company) {
+        var shareholders = company.shareholders || [];
+        var result = [];
+        var index = 0;
+        if (shareholders.length > 0) {
+            for (index = 0; index < shareholders.length; index += 1) {
+                result.push({
+                    name: shareholders[index].name || '未登记',
+                    ratio: shareholders[index].ratio || '-',
+                    subscribedAmount: getEnterpriseSubscribedAmount(company, shareholders[index].ratio, index),
+                    paidAmount: '-',
+                    subscribedDate: getEnterpriseShareholderSubscribedDate(index),
+                    isHistory: false
+                });
+            }
+        } else {
+            result.push({
+                name: getEnterpriseFallbackShareholderName(company, 0),
+                ratio: '98.23%',
+                subscribedAmount: getEnterpriseSubscribedAmount(company, '98.23%', 0),
+                paidAmount: '-',
+                subscribedDate: '2017-03-15',
+                isHistory: false
+            });
+            result.push({
+                name: getEnterpriseFallbackShareholderName(company, 1),
+                ratio: '1.77%',
+                subscribedAmount: getEnterpriseSubscribedAmount(company, '1.77%', 1),
+                paidAmount: '-',
+                subscribedDate: '-',
+                isHistory: false
+            });
+        }
+        result.push({
+            name: '云南省建设投资控股集团有限公司',
+            ratio: '98.23%',
+            subscribedAmount: getEnterpriseSubscribedAmount(company, '98.23%', 0),
+            paidAmount: '-',
+            subscribedDate: '2017-03-15',
+            isHistory: true
+        });
+        result.push({
+            name: '云南建投第一水利水电建设有限公司',
+            ratio: '1.77%',
+            subscribedAmount: getEnterpriseSubscribedAmount(company, '1.77%', 1),
+            paidAmount: '-',
+            subscribedDate: '-',
+            isHistory: true
+        });
+        result.push({
+            name: '云南工程建设总承包股份有限公司',
+            ratio: '12.50%',
+            subscribedAmount: getEnterpriseSubscribedAmount(company, '12.50%', 2),
+            paidAmount: '-',
+            subscribedDate: '2019-06-21',
+            isHistory: true
+        });
+        return result;
+    }
+
+    function getEnterpriseSubscribedAmount(company, ratio, index) {
+        var capital = parseFloat(String(company.registeredCapital || '').replace(/,/g, ''));
+        var percent = parseFloat(String(ratio || '').replace('%', ''));
+        if (!isNaN(capital) && !isNaN(percent)) {
+            return formatEnterpriseAmount(capital * percent / 100) + '万人民币';
+        }
+        if (index === 0) {
+            return '60907.535万人民币';
+        }
+        if (index === 1) {
+            return '1099.81万人民币';
+        }
+        return '-';
+    }
+
+    function formatEnterpriseAmount(value) {
+        var text = String(Math.round(value * 1000) / 1000);
+        return text.replace(/\\.0+$/, '').replace(/(\\.\\d*?)0+$/, '$1');
+    }
+
+    function getEnterpriseFallbackShareholderName(company, index) {
+        if (index === 0) {
+            return '云南省建设投资控股集团有限公司';
+        }
+        if (company.name && company.name.indexOf('第四') >= 0) {
+            return '云南建投第一水利水电建设有限公司';
+        }
+        return '关联出资单位';
+    }
+
+    function getEnterpriseShareholderSubscribedDate(index) {
+        if (index === 0) {
+            return '2017-03-15';
+        }
+        if (index === 1) {
+            return '-';
+        }
+        return '2019-06-21';
+    }
+
+    function buildEnterpriseIntellectualSectionHtml(company) {
+        var patentList = getEnterprisePatentList(company);
+        var copyrightList = getEnterpriseCopyrightList(company);
+        var htmlParts = ['<section class="enterprise-ip-card">'];
+        htmlParts.push('<div class="enterprise-ip-toolbar">');
+        htmlParts.push('<div class="enterprise-ip-switch">');
+        htmlParts.push('<button type="button" class="' + (selectedEnterpriseIpSubTab === '专利信息' ? 'is-active' : '') + '" data-enterprise-ip-sub-tab="专利信息">专利信息 (<span>' + patentList.total + '</span>)</button>');
+        htmlParts.push('<button type="button" class="' + (selectedEnterpriseIpSubTab === '作品著作权' ? 'is-active' : '') + '" data-enterprise-ip-sub-tab="作品著作权">作品著作权 (<span>' + copyrightList.total + '</span>)</button>');
+        htmlParts.push('</div>');
+        if (selectedEnterpriseIpSubTab === '作品著作权') {
+            htmlParts.push('<div class="enterprise-ip-filters"><button type="button" class="enterprise-ip-filter enterprise-ip-date">' + buildUiIcon('calendar') + '登记批准日期起&nbsp;&nbsp;至&nbsp;&nbsp;登记批准日期止</button><input class="enterprise-ip-search" type="text" value="" placeholder="关键词"><button type="button" class="enterprise-ip-search-btn">搜索</button></div>');
+        } else {
+            htmlParts.push('<div class="enterprise-ip-filters"><button type="button" class="enterprise-ip-filter">专利类型<span></span></button><button type="button" class="enterprise-ip-filter">申请年份<span></span></button></div>');
+        }
+        htmlParts.push('</div>');
+        if (selectedEnterpriseIpSubTab === '作品著作权') {
+            htmlParts.push(buildEnterpriseCopyrightTableHtml(copyrightList.rows));
+        } else {
+            htmlParts.push(buildEnterprisePatentTableHtml(patentList.rows));
+        }
+        htmlParts.push('</section>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterprisePatentTableHtml(patentList) {
+        var htmlParts = ['<table class="enterprise-ip-table enterprise-ip-table--patent"><thead><tr><th>序号</th><th>专利名称</th><th>专利类型</th><th>授权状态</th><th>专利申请号</th><th>专利申请日</th><th>摘要</th></tr></thead><tbody>'];
+        var index = 0;
+        for (index = 0; index < patentList.length; index += 1) {
+            htmlParts.push('<tr><td>' + (index + 1) + '</td><td>' + escapeHtml(patentList[index].name) + '</td><td>' + escapeHtml(patentList[index].type) + '</td><td>' + escapeHtml(patentList[index].status) + '</td><td>' + escapeHtml(patentList[index].applyNo) + '</td><td>' + escapeHtml(patentList[index].applyDate) + '</td><td>' + escapeHtml(patentList[index].summary) + '</td></tr>');
+        }
+        htmlParts.push('</tbody></table>');
+        return htmlParts.join('');
+    }
+
+    function buildEnterpriseCopyrightTableHtml(copyrightList) {
+        var htmlParts = ['<table class="enterprise-ip-table enterprise-ip-table--copyright"><thead><tr><th>序号</th><th>作品名称</th><th>登记号</th><th>类别</th><th>首次发布日期</th><th>登记日期</th></tr></thead><tbody>'];
+        var index = 0;
+        for (index = 0; index < copyrightList.length; index += 1) {
+            htmlParts.push('<tr><td>' + (index + 1) + '</td><td>' + escapeHtml(copyrightList[index].name) + '</td><td>' + escapeHtml(copyrightList[index].registerNo) + '</td><td>' + escapeHtml(copyrightList[index].category) + '</td><td>' + escapeHtml(copyrightList[index].publishDate) + '</td><td>' + escapeHtml(copyrightList[index].registerDate) + '</td></tr>');
+        }
+        htmlParts.push('</tbody></table>');
+        return htmlParts.join('');
+    }
+
+    function getEnterprisePatentList(company) {
+        var prefix = getEnterprisePatentPrefix(company);
+        return {
+            total: 179,
+            rows: [
+                { name: '一种改性明胶和铜掺杂二氧化锰低甲醛脲醛胶及制备方法', type: '中国发明专利', status: '未授权', applyNo: 'CN202610044763.9', applyDate: '2026-01-14', summary: '本发明涉及胶黏剂制备技术领域，公开了一种铜掺杂二氧化锰低甲醛脲醛胶和制备方法。' },
+                { name: '一种用于市政工程的抑尘喷淋装置', type: '中国实用新型专利', status: '已授权', applyNo: 'CN202522453663.5', applyDate: '2025-11-19', summary: '本实用新型提供了一种抑尘喷淋技术方案，解决施工现场扬尘控制和喷雾覆盖效率问题。' },
+                { name: '一种市政管道工程的沟槽支护结构', type: '中国实用新型专利', status: '已授权', applyNo: 'CN202522419910.X', applyDate: '2025-11-14', summary: '本实用新型提供了一种沟槽支护结构，提高管道施工过程中的支撑稳定性。' },
+                { name: '一种建筑施工用的铝模板底角成型结构', type: '中国实用新型专利', status: '已授权', applyNo: 'CN202521988010.0', applyDate: '2025-09-16', summary: '本实用新型公开了一种建筑施工模板构件，改善底角连接和成型质量。' },
+                { name: prefix + '全自动智能筛分计量装置用上料机构', type: '中国实用新型专利', status: '已授权', applyNo: 'CN202521593880.8', applyDate: '2025-07-29', summary: '本实用新型公开了一种上料机构，包括横向移载部件和计量输送部件。' }
+            ]
+        };
+    }
+
+    function getEnterpriseCopyrightList(company) {
+        return {
+            total: 7,
+            rows: [
+                { name: '虚拟女主持人', registerNo: '国作登字-2020-F-01062563', category: '美术', publishDate: '2019-12-20', registerDate: '2020-07-01' },
+                { name: '虚拟男主持人', registerNo: '国作登字-2020-F-01062562', category: '美术', publishDate: '2019-12-20', registerDate: '2020-07-01' },
+                { name: '新点投标一体机系列版权', registerNo: '国作登字-2019-L-00836042', category: '其他', publishDate: '2019-06-20', registerDate: '2019-09-12' },
+                { name: '新点投标一体机（投标文件制作软件）系列版权', registerNo: '国作登字-2019-L-00836041', category: '其他', publishDate: '2019-06-20', registerDate: '2019-09-12' },
+                { name: '新点投标一体机（造价软件）系列版权', registerNo: '国作登字-2019-L-00836044', category: '其他', publishDate: '2019-06-20', registerDate: '2019-09-12' },
+                { name: 'Epoint新点', registerNo: '国作登字-2018-F-00673505', category: '美术', publishDate: '2018-10-08', registerDate: '2018-12-14' },
+                { name: '小桥系列图形', registerNo: '国作登字-2018-F-00661396', category: '美术', publishDate: '2017-12-03', registerDate: '2018-11-08' }
+            ]
+        };
+    }
+
+    function getEnterprisePatentPrefix(company) {
+        if (company.name && company.name.indexOf('建设') >= 0) {
+            return '土石料';
+        }
+        return '工程材料';
+    }
+
+    function buildEnterprisePersonnelSectionHtml(company) {
+        var currentList = getEnterprisePersonnelList(company, false);
+        var historyList = getEnterprisePersonnelList(company, true);
+        var activeList = selectedEnterprisePersonnelHistory ? historyList : currentList;
+        return '<section class="enterprise-personnel-card">'
+            + '<h3>主要人员</h3>'
+            + '<div class="enterprise-personnel-switch">'
+            + '<button type="button" class="' + (selectedEnterprisePersonnelHistory ? '' : 'is-active') + '" data-enterprise-personnel-history="false">主要人员 (<span>' + currentList.length + '</span>)</button>'
+            + '<button type="button" class="' + (selectedEnterprisePersonnelHistory ? 'is-active' : '') + '" data-enterprise-personnel-history="true">历史主要人员 (<span>' + historyList.length + '</span>)</button>'
+            + '</div>'
+            + buildEnterprisePersonnelTableHtml(activeList)
+            + '</section>';
+    }
+
+    function buildEnterprisePersonnelTableHtml(personnelList) {
+        var htmlParts = ['<table class="enterprise-personnel-table"><thead><tr><th>序号</th><th>姓名</th><th>职位</th><th>持股比例</th><th>任职实际开始时间</th></tr></thead><tbody>'];
+        var index = 0;
+        for (index = 0; index < personnelList.length; index += 1) {
+            htmlParts.push('<tr><td>' + (index + 1) + '</td><td>' + escapeHtml(personnelList[index].name) + '</td><td>' + escapeHtml(personnelList[index].position) + '</td><td>' + escapeHtml(personnelList[index].shareRatio) + '</td><td>' + escapeHtml(personnelList[index].startDate) + '</td></tr>');
+        }
+        htmlParts.push('</tbody></table>');
+        return htmlParts.join('');
+    }
+
+    function getEnterprisePersonnelList(company, isHistory) {
+        var sourceList = getEnterprisePersonnelSourceList(company);
+        var result = [];
+        var index = 0;
+        for (index = 0; index < sourceList.length; index += 1) {
+            var item = sourceList[index];
+            if (item.isHistory === isHistory) {
+                result.push(item);
+            }
+        }
+        return result;
+    }
+
+    function getEnterprisePersonnelSourceList(company) {
+        var currentNames = ['王枫', '管红梅', '邓书超', '赵琼华', '高金秀', '李兴奎', '余绍彬', '赵翰臻', '王燕奎'];
+        var currentDates = ['2026-08-13', '2026-06-25', '2025-09-24', '2025-09-24', '2025-09-24', '2024-01-19', '2024-01-19', '2023-10-27', '2018-03-29'];
+        var historyNames = ['吴鸣', '马利波', '赵志宏', '李兴奎', '余绍彬', '王燕奎', '赵翰臻', '管红梅', '高金秀', '王枫', '邓书超', '赵琼华', '陈建华', '刘云华', '杨晓东', '张志刚', '李国强', '周明', '孙健', '何平', '罗勇', '段敏', '郭磊', '韩旭', '许峰', '沈青', '唐鹏', '蔡琳', '廖军'];
+        var result = [];
+        var index = 0;
+        for (index = 0; index < currentNames.length; index += 1) {
+            result.push({
+                name: currentNames[index],
+                position: getEnterprisePersonnelPosition(index, false),
+                shareRatio: '-',
+                startDate: currentDates[index],
+                isHistory: false
+            });
+        }
+        for (index = 0; index < historyNames.length; index += 1) {
+            result.push({
+                name: historyNames[index],
+                position: getEnterprisePersonnelPosition(index, true),
+                shareRatio: '-',
+                startDate: getEnterpriseHistoryPersonnelDate(index),
+                isHistory: true
+            });
+        }
+        return result;
+    }
+
+    function getEnterprisePersonnelPosition(index, isHistory) {
+        if (!isHistory && index === 6) {
+            return '董事长,总经理';
+        }
+        if (isHistory && index % 5 === 0) {
+            return '监事';
+        }
+        if (isHistory && index % 4 === 0) {
+            return '经理';
+        }
+        return '董事';
+    }
+
+    function getEnterpriseHistoryPersonnelDate(index) {
+        var dates = ['2023-10-27', '2022-08-15', '2021-04-09', '2020-11-18', '2019-06-30', '2018-03-29'];
+        return dates[index % dates.length];
+    }
+
+    function buildEnterpriseTableRow(label1, value1, label2, value2, label3, value3) {
+        var html = '<tr><th>' + escapeHtml(label1 || '') + '</th><td>' + escapeHtml(value1 || '-') + '</td>';
+        if (label2) {
+            html += '<th>' + escapeHtml(label2) + '</th><td>' + escapeHtml(value2 || '-') + '</td>';
+        } else {
+            html += '<td colspan="4"></td>';
+        }
+        if (label3) {
+            html += '<th>' + escapeHtml(label3) + '</th><td>' + escapeHtml(value3 || '-') + '</td>';
+        } else if (label2) {
+            html += '<td colspan="2"></td>';
+        }
+        html += '</tr>';
+        return html;
+    }
+
+    function getEnterpriseLogoText(companyName) {
+        if (companyName.indexOf('联合征信') >= 0) {
+            return { first: '联合', second: '征信' };
+        }
+        var cleanName = (companyName || '企业档案').replace(/(有限责任公司|股份有限公司|有限公司|集团|公司)/g, '');
+        return {
+            first: cleanName.slice(0, 2) || '企业',
+            second: cleanName.slice(2, 4) || '档案'
+        };
+    }
+
+    function getEnterpriseCreditCode(company) {
+        return company.creditCode || company.unifiedSocialCreditCode || '91310104MA1FRNWW80';
+    }
+
+    function getEnterpriseUpdateDate(company) {
+        return company.updateDate || '2026-05-22';
+    }
+
+    function getEnterpriseEstablishDate(company) {
+        return company.establishDate || '2021-04-09';
+    }
+
+    function getEnterpriseIndustry(company) {
+        return company.industry || '信用服务';
+    }
+
+    function getEnterpriseType(company) {
+        return company.enterpriseType || '有限责任公司(国有控股)';
+    }
+
+    function getEnterpriseWebsite(company) {
+        return company.website || 'www.unionecredit.com';
+    }
+
+    function getEnterpriseEmployeeCount(company) {
+        return company.employeeCount || '48';
+    }
+
+    function getEnterpriseScope(company) {
+        return company.businessScope || '许可项目：企业信用征信服务；企业信用评级；企业信用调查；...';
+    }
+
+    function getEnterprisePaidCapital(capital) {
+        if (capital.indexOf('20000') >= 0) {
+            return '10000万人民币';
+        }
+        return '-';
+    }
+
+    function getEnterpriseOrgCode(creditCode) {
+        if (creditCode.length >= 10) {
+            return creditCode.slice(8, 17);
+        }
+        return '-';
+    }
+
+    function getEnterpriseRegisterNo(creditCode) {
+        if (creditCode.length >= 14) {
+            return creditCode.slice(2, 16);
+        }
+        return '-';
+    }
+
+    function getEnterpriseArea(address) {
+        if (address.indexOf('上海') >= 0) {
+            return '上海市徐汇区';
+        }
+        if (address.indexOf('云南') >= 0) {
+            return '云南省';
+        }
+        return '-';
+    }
+
+    function getEnterpriseRegistry(address) {
+        if (address.indexOf('上海') >= 0) {
+            return '徐汇区市场监督管理局';
+        }
+        if (address.indexOf('云南') >= 0) {
+            return '云南省市场监督管理局';
+        }
+        return '市场监督管理局';
+    }
+
+    function getEnterpriseApproveDate() {
+        return '2026-05-21';
+    }
+
+    function getEnterpriseIndustryCode(industry) {
+        if (industry.indexOf('信用') >= 0) {
+            return 'L7295';
+        }
+        return '-';
+    }
+
+    function getEnterpriseCoordinate(address) {
+        if (address.indexOf('上海') >= 0) {
+            return '经度：121.458110，纬度：31.183143';
+        }
+        return '-';
+    }
+
+    function isCompanyProfileMatched(company, keyword) {
+        if (!keyword) {
+            return true;
+        }
+        if (String(company.name || '').toLowerCase().indexOf(keyword) >= 0) {
+            return true;
+        }
+        if (String(company.legalPerson || '').toLowerCase().indexOf(keyword) >= 0) {
+            return true;
+        }
+        var shareholders = company.shareholders || [];
+        var index = 0;
+        for (index = 0; index < shareholders.length; index += 1) {
+            if (String(shareholders[index].name || '').toLowerCase().indexOf(keyword) >= 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function buildShareholderHtml(shareholders) {
+        if (shareholders.length === 0) {
+            return '<span class="profile-muted">未登记</span>';
+        }
+        var htmlParts = ['<div class="profile-shareholders">'];
+        var index = 0;
+        for (index = 0; index < shareholders.length; index += 1) {
+            var shareholder = shareholders[index];
+            var commonClass = shareholder.isCommon ? ' is-common' : '';
+            var commonText = shareholder.isCommon ? ' (重叠股东)' : '';
+            htmlParts.push('<div><span class="profile-shareholder' + commonClass + '">' + escapeHtml((shareholder.name || '未登记') + commonText) + '</span><strong>' + escapeHtml(shareholder.ratio || '未登记') + '</strong></div>');
+        }
+        htmlParts.push('</div>');
+        return htmlParts.join('');
+    }
+
+    function getCompany3LayerPath(company) {
+        var name = company.name || '投标单位';
+        var shareholders = company.shareholders || [];
+        var topShareholder = shareholders[0] || {};
+        var firstLayer = topShareholder.name || company.legalPerson || '实际控制人';
+        var secondLayer = topShareholder.name ? topShareholder.name + '集团' : (company.legalPerson || '实际控制人') + '控股平台';
+        var ratioTag = topShareholder.ratio ? '持股' + topShareholder.ratio : '持股60%';
+        var baseName = name.replace(/(科技|数据|网络|通信|信息|工程|系统|物联网|安防)?(有限|股份)?公司$/, '');
+        return firstLayer + '<-[实际控制]<-' + secondLayer + '<-[' + ratioTag + ']<-' + name + '->[全资100%]->' + baseName + '技术服务有限公司->[控股70%]->' + baseName + '智能终端有限公司';
+    }
+
+    function buildIssueNodes(issues, graphWidth) {
+        var nodes = [];
+        var spacing = graphWidth / (issues.length + 1);
+        var index = 0;
+        for (index = 0; index < issues.length; index += 1) {
+            var item = issues[index];
+            nodes.push({
+                id: 'issue-' + index,
+                name: item.issueType || '风险问题',
+                meta: item.evidenceSummary || item.relationPath || '',
+                tag: getRiskText(item.riskLevel),
+                x: Math.round(spacing * (index + 1)),
+                y: 135
+            });
+        }
+        return nodes;
+    }
+
+    function buildCompanyNodes(section, companyNames, graphWidth) {
+        var nodes = [];
+        var spacing = graphWidth / (companyNames.length + 1);
+        var index = 0;
+        for (index = 0; index < companyNames.length; index += 1) {
+            var name = companyNames[index];
+            var company = findCompanyByName(section, name);
+            var legalPerson = '未登记';
+            var capital = '未登记';
+            if (company) {
+                legalPerson = company.legalPerson || '未登记';
+                capital = company.registeredCapital || '未登记';
+            }
+            nodes.push({
+                id: 'company-' + index,
+                name: name,
+                meta: '法人: ' + legalPerson + ' · 注册资本: ' + capital,
+                tag: '涉险投标单位',
+                x: Math.round(spacing * (index + 1)),
+                y: 390
+            });
+        }
+        return nodes;
+    }
+
+    function buildGraphEdges(issues, issueNodes, companyNodes) {
+        var edges = [];
+        var issueIndex = 0;
+        for (issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
+            var issue = issues[issueIndex];
+            var companyIndex = 0;
+            for (companyIndex = 0; companyIndex < companyNodes.length; companyIndex += 1) {
+                var companyNode = companyNodes[companyIndex];
+                if (hasName(issue.companies || [], companyNode.name)) {
+                    edges.push({
+                        source: companyNode,
+                        target: issueNodes[issueIndex],
+                        label: issue.issueType || '关联风险'
+                    });
+                }
+            }
+        }
+        return edges;
+    }
+
+    function buildGraphSvg(edges, graphWidth) {
+        var htmlParts = [];
+        var index = 0;
+        htmlParts.push('<svg class="graph-svg" viewBox="0 0 ' + graphWidth + ' 520" preserveAspectRatio="none"><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"></path></marker></defs>');
+        for (index = 0; index < edges.length; index += 1) {
+            var edge = edges[index];
+            htmlParts.push(buildSvgPath(edge));
+        }
+        htmlParts.push('</svg>');
+        return htmlParts.join('');
+    }
+
+    function buildSvgPath(edge) {
+        var sourceX = edge.source.x;
+        var targetX = edge.target.x;
+        var sourceY = edge.source.y - 52;
+        var targetY = edge.target.y + 52;
+        var curveX = Math.round((sourceX + targetX) / 2);
+        var curveY = Math.round((sourceY + targetY) / 2);
+        var path = 'M ' + sourceX + ' ' + sourceY + ' Q ' + curveX + ' ' + curveY + ' ' + targetX + ' ' + targetY;
+        return '<path d="' + path + '" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="8 5" fill="none" marker-end="url(#arrow)"></path>';
+    }
+
+    function buildGraphNodes(nodes, type) {
+        var htmlParts = [];
+        var index = 0;
+        for (index = 0; index < nodes.length; index += 1) {
+            var node = nodes[index];
+            var renderData = {};
+            var nodeHtml = '';
+
+            renderData.type = escapeHtml(type);
+            renderData.x = node.x;
+            renderData.y = node.y;
+            renderData.tag = escapeHtml(node.tag);
+            renderData.name = escapeHtml(node.name);
+            renderData.meta = escapeHtml(node.meta);
+            nodeHtml = renderTemplate('graph-node-temp', renderData);
+            htmlParts.push(nodeHtml);
+        }
+        return htmlParts.join('');
+    }
+
+    function buildSummaryCard(label, value, note) {
+        return '<div class="summary-card"><div class="summary-card__label">' + label + '</div><div class="summary-card__value">' + value + '</div><div class="summary-card__note">' + note + '</div></div>';
+    }
+
+    function buildCoreRiskListHtml(coreRisks) {
+        var htmlParts = [];
+        var index = 0;
+        if (!coreRisks || coreRisks.length === 0) {
+            return buildEmptyState('暂无核心风险点', '当前标段未形成风险点。');
+        }
+        htmlParts.push('<ul class="risk-list">');
+        for (index = 0; index < coreRisks.length; index += 1) {
+            htmlParts.push('<li><div class="risk-list__title">' + escapeHtml(coreRisks[index]) + '</div><div class="risk-list__desc">来源于当前标段投标单位档案与预警规则计算结果。</div></li>');
+        }
+        htmlParts.push('</ul>');
+        return htmlParts.join('');
+    }
+
+    function buildEmptyState(title, desc) {
+        return '<div class="content-card"><div class="empty-state"><strong>' + escapeHtml(title) + '</strong><span>' + escapeHtml(desc) + '</span></div></div>';
+    }
+
+    function buildRiskBadge(section) {
+        if (section.riskLevel === 'high') {
+            return '<span class="badge risk-high">高风险</span>';
+        }
+        if (section.riskLevel === 'medium') {
+            return '<span class="badge risk-medium">中风险</span>';
+        }
+        if (section.riskLevel === 'low' && section.riskCount > 0) {
+            return '<span class="badge risk-low">低风险</span>';
+        }
+        return '<span class="badge risk-normal">正常</span>';
+    }
+
+    function buildLevelBadge(level) {
+        if (level === 'high') {
+            return '<span class="badge risk-high">高风险</span>';
+        }
+        if (level === 'medium') {
+            return '<span class="badge risk-medium">中风险</span>';
+        }
+        return '<span class="badge risk-low">低风险</span>';
+    }
+
+    function getRiskText(level) {
+        if (level === 'high') {
+            return '高风险问题';
+        }
+        if (level === 'medium') {
+            return '中风险问题';
+        }
+        return '低风险问题';
+    }
+
+    function getRiskCount(section) {
+        if (typeof section.riskCount === 'number') {
+            return section.riskCount;
+        }
+        if (section.equityIssueList && section.equityIssueList.length) {
+            return section.equityIssueList.length;
+        }
+        return 0;
+    }
+
+    function getProblemCompanyNames(section) {
+        var names = [];
+        var issues = section.equityIssueList || [];
+        var issueIndex = 0;
+        for (issueIndex = 0; issueIndex < issues.length; issueIndex += 1) {
+            var companies = issues[issueIndex].companies || [];
+            var companyIndex = 0;
+            for (companyIndex = 0; companyIndex < companies.length; companyIndex += 1) {
+                var name = companies[companyIndex];
+                if (name && !hasName(names, name)) {
+                    names.push(name);
+                }
+            }
+        }
+        return names;
+    }
+
+    function getIssueCategoryCount(section) {
+        var names = [];
+        var issues = section.equityIssueList || [];
+        var index = 0;
+        for (index = 0; index < issues.length; index += 1) {
+            var type = issues[index].issueType || '';
+            if (type && !hasName(names, type)) {
+                names.push(type);
+            }
+        }
+        return names.length;
+    }
+
+    function getHighRiskGroupCount(section) {
+        var count = 0;
+        var groups = section.companyRiskGroups || [];
+        var index = 0;
+        for (index = 0; index < groups.length; index += 1) {
+            if (groups[index].riskLevel === 'high') {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    function getTotalPages() {
+        return Math.max(1, Math.ceil(filteredList.length / pageSize));
+    }
+
+    function findSectionById(sectionId) {
+        var index = 0;
+        for (index = 0; index < sectionList.length; index += 1) {
+            if (sectionList[index].id === sectionId) {
+                return sectionList[index];
+            }
+        }
+        return null;
+    }
+
+    function findCompanyByName(section, companyName) {
+        var index = 0;
+        for (index = 0; index < section.companies.length; index += 1) {
+            if (section.companies[index].name === companyName) {
+                return section.companies[index];
+            }
+        }
+        return null;
+    }
+
+    function hasName(list, name) {
+        var index = 0;
+        for (index = 0; index < list.length; index += 1) {
+            if (list[index] === name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function joinNames(list) {
+        var names = [];
+        var index = 0;
+        for (index = 0; index < list.length; index += 1) {
+            if (list[index] && !hasName(names, list[index])) {
+                names.push(list[index]);
+            }
+        }
+        return names.join('、');
+    }
+
+    function findActionButton(target) {
+        while (target && target !== $sectionTableBody) {
+            if (target.getAttribute && target.getAttribute('data-act')) {
+                return target;
+            }
+            target = target.parentNode;
+        }
+        return null;
+    }
+
+    function findPagerButton(target) {
+        while (target && target !== $pager) {
+            if (target.getAttribute && target.getAttribute('data-page')) {
+                return target;
+            }
+            target = target.parentNode;
+        }
+        return null;
+    }
+
+    function findParentButton(target, boundary) {
+        while (target && target !== boundary) {
+            if (target.tagName === 'BUTTON') {
+                return target;
+            }
+            target = target.parentNode;
+        }
+        return null;
+    }
+
+    function getSectionRiskLabel(section) {
+        if (section.riskLevel === 'high') {
+            return '高风险';
+        }
+        if (section.riskLevel === 'medium') {
+            return '中风险';
+        }
+        if (section.riskCount > 0) {
+            return '低风险';
+        }
+        return '正常';
+    }
+
+    function getModalRiskClass(section) {
+        if (section.riskLevel === 'high') {
+            return 'modal-risk-badge--high';
+        }
+        if (section.riskLevel === 'medium') {
+            return 'modal-risk-badge--medium';
+        }
+        return 'modal-risk-badge--low';
+    }
+
+    function renderTemplate(templateId, data) {
+        var templateNode = doc.getElementById(templateId);
+        var html = templateNode.innerHTML;
+        var key = '';
+        for (key in data) {
+            if (Object.prototype.hasOwnProperty.call(data, key)) {
+                var reg = new RegExp('{{' + key + '}}', 'g');
+                html = html.replace(reg, data[key]);
+            }
+        }
+        return html;
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+})(window, document);

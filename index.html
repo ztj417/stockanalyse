@@ -1,13 +1,228 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>招标风险监管与标段分析系统</title>
+    <link rel="stylesheet" href="./css/index.css">
+    <script>
+        window.pageConfig = {
+            useMock: true,
+            listApi: '../api/sections'
+        };
+    </script>
+</head>
+<body>
+    <div class="page-shell">
+        <header class="app-header">
+            <div class="app-header__inner">
+                <div class="brand">
+                    <div class="brand__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.4 8.6-8 9-4.6-.4-8-4-8-9V7l8-4z"></path><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+                    </div>
+                    <div class="brand__text">
+                        <h1>招标风险监管与标段分析系统</h1>
+                        <p>智慧招投标围标串标预警及股权穿透监管平台</p>
+                    </div>
+                    <span class="status-pill">实时监控中</span>
+                </div>
+                <button type="button" class="btn btn--ghost" id="resetButton" title="重置数据">
+                    <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"></path><path d="M3 21v-5h5"></path></svg>
+                    <span>重置数据</span>
+                </button>
+            </div>
+        </header>
 
+        <main class="main-area">
+            <section class="filter-panel">
+                <div class="field-row">
+                    <label for="sectionKeyword">标段名称:</label>
+                    <input type="text" id="sectionKeyword" placeholder="请输入标段或编号名称...">
+                </div>
+                <div class="field-row field-row--select">
+                    <label for="riskFilter">风险状态:</label>
+                    <select id="riskFilter">
+                        <option value="all">全部风险</option>
+                        <option value="high">高风险</option>
+                        <option value="medium">中风险</option>
+                        <option value="low">低风险</option>
+                        <option value="normal">正常</option>
+                    </select>
+                </div>
+                <button type="button" class="btn btn--primary" id="searchButton">
+                    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+                    <span>搜索</span>
+                </button>
+            </section>
+
+            <section class="table-card">
+                <div class="table-wrap">
+                    <table class="section-table">
+                        <thead>
+                            <tr>
+                                <th class="col-index">序</th>
+                                <th class="col-code">标段编号</th>
+                                <th>标段名称</th>
+                                <th class="col-count">投标单位家数</th>
+                                <th class="col-count">问题数量</th>
+                                <th class="col-risk">风险状态</th>
+                                <th class="col-action">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sectionTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <div class="page-total" id="pageTotal"></div>
+                    <div class="pager" id="pager"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal-mask is-hidden" id="detailModal">
+        <div class="modal-panel" role="dialog" aria-modal="true">
+            <div class="modal-head">
+                <button type="button" class="icon-btn modal-back" id="closeModalButton" title="返回标段列表">
+                    <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
+                </button>
+                <div class="modal-title-area">
+                    <div class="modal-code" id="modalCode"></div>
+                    <div class="modal-title-line">
+                        <h2 id="modalTitle"></h2>
+                        <span class="modal-risk-badge" id="modalRiskBadge"></span>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="icon-btn" id="closeModalIconButton" title="关闭">
+                        <svg viewBox="0 0 24 24"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+            <nav class="tabs" id="detailTabs">
+                <button type="button" data-tab="overview" class="is-active"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg>标段风险总览</button>
+                <button type="button" data-tab="matrix"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg>单位风险详情</button>
+                <button type="button" data-tab="topology"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="5"></rect><rect x="3" y="17" width="6" height="5"></rect><rect x="15" y="17" width="6" height="5"></rect><path d="M12 7v5M6 17v-5h12v5"></path></svg>单位关系图谱</button>
+                <button type="button" data-tab="companies"><svg viewBox="0 0 24 24"><path d="M4 21V5l8-3 8 3v16"></path><path d="M9 21v-4h6v4M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01"></path></svg>投标单位画像</button>
+            </nav>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <div class="penetration-mask is-hidden" id="detailPopup">
+        <section class="penetration-panel" role="dialog" aria-modal="true" aria-labelledby="detailPopupTitle">
+            <header class="penetration-head">
+                <div class="penetration-heading">
+                    <span class="penetration-heading__icon"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="5"></rect><rect x="3" y="17" width="6" height="5"></rect><rect x="15" y="17" width="6" height="5"></rect><path d="M12 7v5M6 17v-5h12v5"></path></svg></span>
+                    <div><h3 id="detailPopupTitle"></h3><p id="detailPopupSubtitle"></p></div>
+                </div>
+                <button type="button" class="penetration-close" id="closeDetailPopup" title="关闭"><svg viewBox="0 0 24 24"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg></button>
+            </header>
+            <div class="penetration-body" id="detailPopupBody"></div>
+        </section>
+    </div>
+
+    <!-- 投标单位画像全屏档案 modal：由 company-profile iframe 通过 postMessage 触发 -->
+    <div class="company-detail-fullscreen-mask is-hidden" id="companyDetailFullscreenModal">
+        <div class="company-detail-fullscreen-panel" role="dialog" aria-modal="true">
+            <header class="company-detail-fullscreen-head">
+                <h3 id="companyDetailFullscreenTitle">企业档案</h3>
+                <button type="button" class="company-detail-fullscreen-close" id="closeCompanyDetailFullscreen" title="关闭">
+                    <svg viewBox="0 0 24 24"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>
+                </button>
+            </header>
+            <iframe class="company-detail-fullscreen-iframe" id="companyDetailFullscreenIframe" src="about:blank" title="企业档案" frameborder="0"></iframe>
+        </div>
+    </div>
+
+    <script type="text/html" id="section-row-temp">
+        <tr>
+            <td class="col-index">{{seq}}</td>
+            <td class="code-cell">{{code}}</td>
+            <td class="name-cell">{{name}}</td>
+            <td class="num-cell">{{companyCount}}</td>
+            <td class="num-cell">{{riskCount}}</td>
+            <td class="risk-cell">{{riskBadge}}</td>
+            <td class="action-cell">
+                <button type="button" class="icon-btn icon-btn--blue" data-act="open-detail" data-id="{{id}}" title="查看详情">
+                    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+                </button>
+            </td>
+        </tr>
+    </script>
+
+    <script type="text/html" id="empty-row-temp">
+        <tr><td colspan="7" class="empty-cell">{{message}}</td></tr>
+    </script>
+
+    <script type="text/html" id="issue-row-temp">
+        <tr>
+            <td class="issue-type">{{issueType}}</td>
+            <td>{{levelBadge}}</td>
+            <td class="issue-companies">{{companies}}</td>
+            <td class="issue-path">{{relationPath}}</td>
+            <td class="issue-evidence">{{evidenceSummary}}</td>
+            <td class="issue-action"><button type="button" class="icon-btn icon-btn--blue" {{popupAttributes}} title="查看图谱">{{searchIcon}}</button></td>
+        </tr>
+    </script>
+
+    <script type="text/html" id="company-row-temp">
+        <tr>
+            <td><div class="profile-company-name">{{name}}</div></td>
+            <td>{{legalPerson}}</td>
+            <td>{{registeredCapital}}</td>
+            <td class="code-cell">{{creditCode}}</td>
+            <td>{{establishDate}}</td>
+            <td>{{phone}}</td>
+            <td>{{email}}</td>
+            <td>{{address}}</td>
+            <td class="profile-action"><button type="button" class="matrix-detail" {{popupAttributes}} title="查看图谱">{{searchIcon}}</button></td>
+        </tr>
+    </script>
+
+    <script type="text/html" id="matrix-summary-row-temp">
+        <tr class="matrix-summary-row">
+            <td rowspan="{{rowSpan}}" class="matrix-company-group">{{companyHtml}}</td>
+            <td><div class="matrix-trigger"><button type="button" data-matrix-toggle="{{groupId}}" class="matrix-toggle{{expandedClass}}" title="{{toggleTitle}}">⌄</button><strong>触发 {{triggerCount}} 项规则</strong></div></td>
+            <td><div class="matrix-summary"><span>该单位组共排查出 <strong>{{triggerCount}}</strong> 项关联风险：</span><div>{{badgeHtml}}</div></div></td>
+            <td class="matrix-center"><span class="matrix-risk-pill matrix-risk-pill--high"><i></i>{{riskText}}</span></td>
+            <td class="matrix-center"><button type="button" class="matrix-detail" {{popupAttributes}} title="查看详情">{{searchIcon}}</button></td>
+        </tr>
+    </script>
+
+    <script type="text/html" id="matrix-rule-row-temp">
+        <tr class="matrix-detail-row">
+            <td><div class="matrix-rule-title"><span class="matrix-type matrix-type--{{ruleClass}}">{{typeTag}}</span><strong>{{ruleTitle}}</strong></div></td>
+            <td class="matrix-description">{{description}}</td>
+            <td class="matrix-center"><span class="matrix-risk-pill matrix-risk-pill--{{statusType}}">{{statusText}}</span></td>
+            <td class="matrix-center"><button type="button" class="matrix-detail" {{popupAttributes}} title="查看详情">{{searchIcon}}</button></td>
+        </tr>
+    </script>
+
+    <script type="text/html" id="graph-node-temp">
+        <div class="graph-node graph-node--{{type}}" style="left:{{x}}px;top:{{y}}px">
+            <div class="graph-node__tag">{{tag}}</div>
+            <div class="graph-node__name" title="{{name}}">{{name}}</div>
+            <div class="graph-node__meta">{{meta}}</div>
+        </div>
+    </script>
+
+    <script type="text/html" id="ownership-chain-temp">
+        <article class="ownership-chain">
+            <div class="ownership-node ownership-node--owner"><span>上层股东 / 实际控制</span><strong>{{ownerName}}</strong><small>{{ownerRatio}}</small></div>
+            <i>↓</i>
+            <div class="ownership-node ownership-node--target"><span>当前投标单位</span><strong>{{companyName}}</strong><small>法定代表人：{{legalPerson}}</small></div>
+            <i>↓</i>
+            <div class="ownership-node ownership-node--child"><span>下游穿透路径</span><strong>{{childPath}}</strong></div>
+        </article>
+    </script>
+
+    <script type="text/html" id="contact-row-temp">
+        <tr><td><strong>{{name}}</strong></td><td>{{phone}}</td><td>{{email}}</td><td>{{address}}</td></tr>
+    </script>
+
+    <script src="./js/lib/echarts.min.js"></script>
+    <script src="./js/mock/index.mock.js"></script>
+    <script src="./js/index.js"></script>
+</body>
+</html>
