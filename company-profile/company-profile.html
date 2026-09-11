@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>投标单位画像 - 招标风险监管与标段分析系统</title>
+    <script>
+        window._rootPath = window.location.pathname.replace(/\/company-profile\/company-profile\.html$/i, '');
+    </script>
+    <script src="../frame/fui/js/cssboot.js"></script>
     <link rel="stylesheet" href="../css/index.css">
     <link rel="stylesheet" href="./css/company-profile.css">
     <script>
@@ -49,26 +53,6 @@
 
         </main>
     </div>
-
-    <!-- 企业档案弹窗：点击列表「查看」按钮后弹出，替代原页面下方档案区块。 -->
-    <div class="modal-mask is-hidden" id="companyDetailModal" role="dialog" aria-modal="true" aria-labelledby="companyDetailModalTitle">
-        <div class="modal-panel company-detail-modal-panel">
-            <div class="modal-head">
-                <div class="modal-title-area">
-                    <div class="modal-title-line">
-                        <h2 id="companyDetailModalTitle">企业档案</h2>
-                    </div>
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="icon-btn" id="companyDetailModalClose" title="关闭">
-                        <svg viewBox="0 0 24 24"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>
-                    </button>
-                </div>
-            </div>
-            <div class="modal-body" id="companyDetailArea"></div>
-        </div>
-    </div>
-
     <script type="text/html" id="company-row-temp">
         <tr>
             <td><div class="profile-company-name">{{name}}</div></td>
@@ -87,7 +71,10 @@
         <tr><td colspan="9" class="profile-empty">{{message}}</td></tr>
     </script>
 
-    <script src="./js/mock/company-profile.mock.js"></script>
+    <script src="./js/mock/company-profile-list.mock.js"></script>
+    <script src="./js/modules/company-profile-module-utils.js"></script>
+    <script src="./js/modules/company-profile-list.module.js"></script>
+    <script src="../frame/fui/js/jsboot.js"></script>
     <script src="./js/company-profile.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 'use strict';
 (function (win, doc) {
     var pageState = {};
-    var pageSize = 10;
+    var pageSize = 12;
     var sectionList = [];
     var filteredList = [];
     var selectedSection = null;
@@ -25,7 +25,10 @@
         'matrix-grp-4': true
     };
     var $keywordInput = null;
+    var $sectionCodeInput = null;
     var $riskFilter = null;
+    var $filterPanel = null;
+    var $toggleFilterButton = null;
     var $sectionTableBody = null;
     var $pageTotal = null;
     var $pager = null;
@@ -52,7 +55,10 @@
     // 页面节点只在初始化阶段查找一次，后续功能统一复用缓存变量。
     function cachePageNodes() {
         $keywordInput = doc.getElementById('sectionKeyword');
+        $sectionCodeInput = doc.getElementById('sectionCodeKeyword');
         $riskFilter = doc.getElementById('riskFilter');
+        $filterPanel = doc.querySelector('.filter-panel');
+        $toggleFilterButton = doc.getElementById('toggleFilterButton');
         $sectionTableBody = doc.getElementById('sectionTableBody');
         $pageTotal = doc.getElementById('pageTotal');
         $pager = doc.getElementById('pager');
@@ -68,17 +74,28 @@
         $detailPopupBody = doc.getElementById('detailPopupBody');
         pageState.currentPage = 1;
         pageState.keyword = '';
+        pageState.codeKeyword = '';
         pageState.riskFilter = 'all';
     }
 
     // 静态节点事件统一在这里绑定；动态详情内容通过容器事件委托处理。
     function bindPageEvents() {
         doc.getElementById('searchButton').addEventListener('click', onSearchClick);
-        doc.getElementById('resetButton').addEventListener('click', onResetClick);
+        var resetButton = doc.getElementById('resetButton');
+        if (resetButton) {
+            resetButton.addEventListener('click', onResetClick);
+        }
+        if ($toggleFilterButton) {
+            $toggleFilterButton.addEventListener('click', onToggleFilterClick);
+        }
         doc.getElementById('closeModalButton').addEventListener('click', closeDetailModal);
         doc.getElementById('closeModalIconButton').addEventListener('click', closeDetailModal);
         $keywordInput.addEventListener('input', onKeywordInput);
         $keywordInput.addEventListener('keydown', onKeywordKeydown);
+        if ($sectionCodeInput) {
+            $sectionCodeInput.addEventListener('input', onSectionCodeInput);
+            $sectionCodeInput.addEventListener('keydown', onKeywordKeydown);
+        }
         $riskFilter.addEventListener('change', onRiskFilterChange);
         $sectionTableBody.addEventListener('click', onTableClick);
         $pager.addEventListener('click', onPagerClick);
@@ -105,27 +122,72 @@
     // 处理 iframe 发来的 postMessage：在 index 顶层弹出全屏档案详情 modal。
     function onWindowMessage(event) {
         var data = event.data;
-        if (!data || data.type !== 'openCompanyDetailModal') {
+        if (!data) {
             return;
         }
-        openCompanyDetailFullscreenModal(data.profileId, data.companyName);
+        if (data.type === 'openCompanyDetailModal') {
+            openCompanyDetailFullscreenModal(data);
+            return;
+        }
+        if (data.type === 'closeCompanyDetailModal') {
+            closeCompanyDetailFullscreenModal();
+        }
     }
 
-    // 在顶层页面弹出全屏档案详情 modal，内部用 iframe 嵌入 company-profile.html。
-    function openCompanyDetailFullscreenModal(profileId, companyName) {
+    // 在顶层页面弹出全屏档案详情 modal，内部用 iframe 嵌入投标单位画像详情页。
+    function openCompanyDetailFullscreenModal(data) {
         var modal = doc.getElementById('companyDetailFullscreenModal');
         var iframe = doc.getElementById('companyDetailFullscreenIframe');
         var title = doc.getElementById('companyDetailFullscreenTitle');
+        var iframeSrc = data.detailUrl || ('./company-profile/company-profile-detail.html'
+            + '?companyId=' + encodeURIComponent(data.profileId || '')
+            + '&sectionId=' + encodeURIComponent(data.sectionId || '')
+            + '&code=' + encodeURIComponent(data.code || '')
+            + '&name=' + encodeURIComponent(data.name || '')
+            + '&riskLevel=' + encodeURIComponent(data.riskLevel || '')
+            + '&companyCount=' + encodeURIComponent(data.companyCount || '')
+            + '&riskCount=' + encodeURIComponent(data.riskCount || ''));
+        if (openPageDialog(data.companyName || '企业档案', iframeSrc)) {
+            return;
+        }
         if (!modal || !iframe) {
             return;
         }
-        var iframeSrc = './company-profile/company-profile.html?openCompany=' + encodeURIComponent(profileId || '');
         iframe.src = iframeSrc;
         if (title) {
-            title.textContent = companyName || '企业档案';
+            title.textContent = data.companyName || '企业档案';
         }
         modal.classList.remove('is-hidden');
         doc.body.style.overflow = 'hidden';
+    }
+
+    function openPageDialog(title, url, settings) {
+        if (!win.epoint || typeof win.epoint.openDialog !== 'function') {
+            return false;
+        }
+        win.epoint.openDialog(title || '详情', url, null, extendDialogSettings({
+            width: 1400,
+            height: 820,
+            allowResize: true
+        }, settings));
+        return true;
+    }
+
+    function extendDialogSettings(baseSettings, customSettings) {
+        var key = '';
+        var result = {};
+
+        for (key in baseSettings) {
+            if (Object.prototype.hasOwnProperty.call(baseSettings, key)) {
+                result[key] = baseSettings[key];
+            }
+        }
+        for (key in customSettings || {}) {
+            if (Object.prototype.hasOwnProperty.call(customSettings, key)) {
+                result[key] = customSettings[key];
+            }
+        }
+        return result;
     }
 
     function closeCompanyDetailFullscreenModal() {
@@ -261,6 +323,7 @@
 
     function onSearchClick() {
         pageState.keyword = $keywordInput.value;
+        pageState.codeKeyword = $sectionCodeInput ? $sectionCodeInput.value : '';
         pageState.currentPage = 1;
         applySectionFilters();
         renderSectionTable();
@@ -268,6 +331,13 @@
 
     function onKeywordInput() {
         pageState.keyword = $keywordInput.value;
+        pageState.currentPage = 1;
+        applySectionFilters();
+        renderSectionTable();
+    }
+
+    function onSectionCodeInput() {
+        pageState.codeKeyword = $sectionCodeInput ? $sectionCodeInput.value : '';
         pageState.currentPage = 1;
         applySectionFilters();
         renderSectionTable();
@@ -286,10 +356,24 @@
         renderSectionTable();
     }
 
+    function onToggleFilterClick() {
+        if (!$filterPanel || !$toggleFilterButton) {
+            return;
+        }
+        var isCollapsed = $filterPanel.classList.toggle('is-collapsed');
+        $toggleFilterButton.textContent = isCollapsed ? '⌄' : '⌃';
+        $toggleFilterButton.title = isCollapsed ? '展开查询条件' : '收起查询条件';
+        $toggleFilterButton.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+    }
+
     function onResetClick() {
         $keywordInput.value = '';
+        if ($sectionCodeInput) {
+            $sectionCodeInput.value = '';
+        }
         $riskFilter.value = 'all';
         pageState.keyword = '';
+        pageState.codeKeyword = '';
         pageState.riskFilter = 'all';
         pageState.currentPage = 1;
         selectedSection = null;
@@ -329,7 +413,7 @@
         if (!target) {
             return;
         }
-        // 「投标单位画像」内嵌 company-profile.html 到 iframe，不再整页跳转。
+        // 「投标单位画像」内嵌投标单位列表页到 iframe，不再整页跳转。
         if ((target.getAttribute('data-tab') || '') === 'companies') {
             activeTab = 'companies';
             renderTabs();
@@ -465,12 +549,13 @@
     function applySectionFilters() {
         filteredList = [];
         var keyword = String(pageState.keyword || '').trim().toLowerCase();
+        var codeKeyword = String(pageState.codeKeyword || '').trim().toLowerCase();
         var riskFilter = pageState.riskFilter || 'all';
         var index = 0;
         for (index = 0; index < sectionList.length; index += 1) {
             var section = sectionList[index];
             var matchRisk = isRiskMatched(section, riskFilter);
-            var matchKeyword = isKeywordMatched(section, keyword);
+            var matchKeyword = isKeywordMatched(section, keyword, codeKeyword);
             if (matchRisk && matchKeyword) {
                 filteredList.push(section);
             }
@@ -487,16 +572,19 @@
         return section.riskLevel === riskFilter;
     }
 
-    function isKeywordMatched(section, keyword) {
-        if (!keyword) {
+    function isKeywordMatched(section, keyword, codeKeyword) {
+        if (!keyword && !codeKeyword) {
             return true;
         }
         var code = String(section.code || '').toLowerCase();
         var name = String(section.name || '').toLowerCase();
-        if (code.indexOf(keyword) >= 0) {
-            return true;
+        if (keyword && name.indexOf(keyword) < 0) {
+            return false;
         }
-        return name.indexOf(keyword) >= 0;
+        if (codeKeyword && code.indexOf(codeKeyword) < 0) {
+            return false;
+        }
+        return true;
     }
 
     function renderSectionTable() {
@@ -529,7 +617,7 @@
         }
 
         $sectionTableBody.innerHTML = htmlParts.join('');
-        $pageTotal.innerHTML = '共 ' + filteredList.length + ' 条 <span>10条/页</span>';
+        $pageTotal.innerHTML = '';
         renderPager(totalPages);
     }
 
@@ -544,7 +632,7 @@
         if (pageState.currentPage >= totalPages) {
             nextDisabled = ' disabled';
         }
-        htmlParts.push('<button type="button" data-page="' + Math.max(1, pageState.currentPage - 1) + '"' + previousDisabled + ' title="上一页">‹</button>');
+        htmlParts.push('<button type="button" class="pager-arrow" data-page="' + Math.max(1, pageState.currentPage - 1) + '"' + previousDisabled + ' title="上一页">‹</button>');
         for (pageNum = 1; pageNum <= totalPages; pageNum += 1) {
             var activeClass = '';
             if (pageNum === pageState.currentPage) {
@@ -552,7 +640,12 @@
             }
             htmlParts.push('<button type="button" data-page="' + pageNum + '"' + activeClass + '>' + pageNum + '</button>');
         }
-        htmlParts.push('<button type="button" data-page="' + Math.min(totalPages, pageState.currentPage + 1) + '"' + nextDisabled + ' title="下一页">›</button>');
+        htmlParts.push('<button type="button" class="pager-arrow" data-page="' + Math.min(totalPages, pageState.currentPage + 1) + '"' + nextDisabled + ' title="下一页">›</button>');
+        htmlParts.push('<span class="pager-size">' + pageSize + '<em>条/页</em><i>⌄</i></span>');
+        htmlParts.push('<span class="pager-jump">跳至</span>');
+        htmlParts.push('<span class="pager-input">' + pageState.currentPage + '</span>');
+        htmlParts.push('<span class="pager-jump">页</span>');
+        htmlParts.push('<span class="pager-total">共' + filteredList.length + '条</span>');
         $pager.innerHTML = htmlParts.join('');
     }
 
@@ -633,10 +726,19 @@
     }
 
     function openKnowledgeGraphPage(target) {
-        win.location.href = target.getAttribute('data-knowledgegraph-url') || './frame/pages/knowledgegraph/zstpexactsearchpopup.html';
+        var pageUrl = target.getAttribute('data-knowledgegraph-url') || './frame/pages/knowledgegraph/zstpexactsearchpopup.html';
+
+        if (openPageDialog('单位关系图谱', pageUrl, {
+            width: 1500,
+            height: 860,
+            allowResize: true
+        })) {
+            return;
+        }
+        win.location.href = pageUrl;
     }
 
-    // 在标段详情弹窗内用 iframe 内嵌 company-profile.html。
+    // 在标段详情弹窗内用 iframe 内嵌投标单位画像列表页。
     function renderCompaniesIframe() {
         var section = selectedSection;
         var pageUrl = './company-profile/company-profile.html';
@@ -660,6 +762,13 @@
         var pageUrl = './company-profile/company-profile.html';
 
         if (!section) {
+            if (openPageDialog('投标单位画像', pageUrl, {
+                width: 1500,
+                height: 860,
+                allowResize: true
+            })) {
+                return;
+            }
             win.location.href = pageUrl;
             return;
         }
@@ -669,6 +778,13 @@
             + '&riskLevel=' + encodeURIComponent(section.riskLevel || 'low')
             + '&companyCount=' + encodeURIComponent(String(section.companyCount || 0))
             + '&riskCount=' + encodeURIComponent(String(section.riskCount || 0));
+        if (openPageDialog('投标单位画像', pageUrl, {
+            width: 1500,
+            height: 860,
+            allowResize: true
+        })) {
+            return;
+        }
         win.location.href = pageUrl;
     }
 
@@ -1901,37 +2017,22 @@
     }
 
     function buildUiIcon(name) {
-        if (name === 'building') {
-            return '<svg viewBox="0 0 24 24"><path d="M4 21V5l8-3 8 3v16"></path><path d="M8 21v-5h8v5M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01"></path></svg>';
-        }
-        if (name === 'users') {
-            return '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>';
-        }
-        if (name === 'layers') {
-            return '<svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>';
-        }
-        if (name === 'alert' || name === 'warning') {
-            return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 17h.01"></path></svg>';
-        }
-        if (name === 'shield') {
-            return '<svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.4 8.6-8 9-4.6-.4-8-4-8-9V7l8-4z"></path><path d="M12 8v5M12 16h.01"></path></svg>';
-        }
-        if (name === 'tag') {
-            return '<svg viewBox="0 0 24 24"><path d="M20 13l-7 7-10-10V3h7l10 10z"></path><circle cx="7.5" cy="7.5" r="1"></circle></svg>';
-        }
-        if (name === 'file') {
-            return '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6M8 13h8M8 17h8"></path></svg>';
-        }
-        if (name === 'clock') {
-            return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>';
-        }
-        if (name === 'calendar') {
-            return '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>';
-        }
-        if (name === 'pie') {
-            return '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9v9z"></path><path d="M12 3a9 9 0 0 1 9 9h-9z"></path></svg>';
-        }
-        return '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>';
+        var iconClassMap = {
+            building: 'building',
+            users: 'users',
+            layers: 'layers',
+            alert: 'alert',
+            warning: 'alert',
+            shield: 'shield',
+            tag: 'tag',
+            file: 'file',
+            clock: 'clock',
+            calendar: 'calendar',
+            pie: 'pie',
+            search: 'search'
+        };
+        var iconClass = iconClassMap[name] || 'search';
+        return '<span class="svg-icon svg-icon--' + iconClass + '" aria-hidden="true"></span>';
     }
 
     function isContactIssue(issueType) {

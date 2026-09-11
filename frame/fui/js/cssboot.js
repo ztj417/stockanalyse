@@ -96,7 +96,7 @@ var THEME_CONFIG = {
 document.write(
     '<style>.page-loading{position:fixed;z-index:1000;top:0;right:0;bottom:0;left:0;background-color:#fff}</style>'
 );
-var _rootPath = (function () {
+var _rootPath = typeof window._rootPath === 'string' ? window._rootPath : (function () {
     var path = location.pathname.replace(/\\/g, '/');
     var marker = '/frame/';
     var markerIndex = path.indexOf(marker);

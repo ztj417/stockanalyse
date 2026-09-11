@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投标单位画像详情 - 招标风险监管与标段分析系统</title>
+    <link rel="stylesheet" href="../css/index.css">
+    <link rel="stylesheet" href="./css/company-profile.css">
+    <script>
+        window.pageConfig = {
+            useMock: true,
+            getCompanyListData: '../api/companyProfile/list',
+            getCompanyDetailData: '../api/companyProfile/detail'
+        };
+    </script>
+</head>
+<body>
+    <div class="page-shell">
+        <main class="main-area company-profile-page company-profile-detail-page">
+            <section class="profile-card company-profile-detail-card">
+                <div class="company-detail-area" id="companyDetailArea"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="./js/mock/company-profile-list.mock.js"></script>
+    <script src="./js/mock/company-profile-basic.mock.js"></script>
+    <script src="./js/mock/company-profile-registration.mock.js"></script>
+    <script src="./js/mock/company-profile-shareholders.mock.js"></script>
+    <script src="./js/mock/company-profile-personnel.mock.js"></script>
+    <script src="./js/mock/company-profile-annual-reports.mock.js"></script>
+    <script src="./js/mock/company-profile-topology.mock.js"></script>
+    <script src="./js/mock/company-profile-risks.mock.js"></script>
+    <script src="./js/mock/company-profile-patents.mock.js"></script>
+    <script src="./js/mock/company-profile-copyrights.mock.js"></script>
+    <script src="./js/mock/company-profile-domains.mock.js"></script>
+    <script src="./js/modules/company-profile-module-utils.js"></script>
+    <script src="./js/modules/company-profile-data-provider.js"></script>
+    <script src="./js/modules/company-profile-basic.module.js"></script>
+    <script src="./js/modules/company-profile-registration.module.js"></script>
+    <script src="./js/modules/company-profile-shareholders.module.js"></script>
+    <script src="./js/modules/company-profile-personnel.module.js"></script>
+    <script src="./js/modules/company-profile-annual-reports.module.js"></script>
+    <script src="./js/modules/company-profile-topology.module.js"></script>
+    <script src="./js/modules/company-profile-risks.module.js"></script>
+    <script src="./js/modules/company-profile-patents.module.js"></script>
+    <script src="./js/modules/company-profile-copyrights.module.js"></script>
+    <script src="./js/modules/company-profile-domains.module.js"></script>
+    <script src="./js/company-profile-detail.js"></script>
+</body>
+</html>

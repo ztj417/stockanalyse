@@ -135,6 +135,15 @@
     margin-bottom: 16px;
 }
 
+.company-profile-detail-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.company-profile-detail-card .company-detail-area {
+    padding: 20px 24px 28px;
+}
+
 /* 股东名称搜索框：复用全局 .profile-search 视觉风格，放置于股东 head 区内。 */
 .enterprise-shareholder-search {
     position: relative;
